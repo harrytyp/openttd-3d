@@ -1025,6 +1025,9 @@ void SwitchToMode(SwitchMode new_mode)
 			}
 		}
 
+		/* Test-hook (autonomous testing): start a local game as network server so the admin port is available. */
+		if (!_network_dedicated && _settings_client.network.server_autostart) _is_network_server = true;
+
 		/* If we are a server, we restart the server */
 		if (_is_network_server) {
 			/* But not if we are going to the menu */

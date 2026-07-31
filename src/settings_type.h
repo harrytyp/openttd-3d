@@ -410,6 +410,7 @@ struct NetworkSettings {
 	uint16_t server_port; ///< port the server listens on
 	uint16_t server_admin_port; ///< port the server listens on for the admin network
 	bool server_admin_chat; ///< allow private chat for the server to be distributed to the admin network
+	bool server_autostart; ///< test-hook: start local games as network server (autonomous testing)
 	ServerGameType server_game_type; ///< Server type: local / public / invite-only.
 	std::string server_invite_code; ///< Invite code to use when registering as server.
 	std::string server_invite_code_secret; ///< Secret to proof we got this invite code from the Game Coordinator.
