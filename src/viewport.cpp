@@ -63,6 +63,7 @@
 #include "stdafx.h"
 #include "core/backup_type.hpp"
 #include "landscape.h"
+#include "core/projective.hpp"
 #include "viewport_func.h"
 #include "station_base.h"
 #include "waypoint_base.h"
@@ -170,6 +171,8 @@ constexpr int LAST_CHILD_PARENT = -2; ///< Fill last_child of the most recent pa
 struct ViewportDrawer {
 	DrawPixelInfo dpi;
 
+	CameraParams camera; ///< Perspective camera for this frame (3D mode).
+
 	StringSpriteToDrawVector string_sprites_to_draw;
 	TileSpriteToDrawVector tile_sprites_to_draw;
 	ParentSpriteToDrawVector parent_sprites_to_draw;
@@ -200,8 +203,24 @@ static VpSpriteSorter _vp_sprite_sorter = nullptr;
 static Point MapXYZToViewport(const Viewport &vp, int x, int y, int z)
 {
 	Point p = RemapCoords(x, y, z);
+	if (_settings_client.gui.three_d_mode) {
+		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+		p = CameraProject(c, p);
+	}
 	p.x -= vp.virtual_width / 2;
 	p.y -= vp.virtual_height / 2;
+	return p;
+}
+
+/**
+ * RemapCoords for the viewport draw path, with optional 3D perspective.
+ * Uses the per-frame camera of the active viewport draw.
+ */
+static inline Point RemapCoordsVP(int x, int y, int z)
+{
+	Point p = RemapCoords(x, y, z);
+	if (_settings_client.gui.three_d_mode) p = CameraProject(_vd.camera, p);
 	return p;
 }
 
@@ -434,9 +453,17 @@ Point TranslateXYToTileCoord(const Viewport &vp, int x, int y, bool clamp_to_map
 		return pt;
 	}
 
-	return InverseRemapCoords2(
-			ScaleByZoom(x - vp.left, vp.zoom) + vp.virtual_left,
-			ScaleByZoom(y - vp.top, vp.zoom) + vp.virtual_top, clamp_to_map);
+	Point pt = {
+		ScaleByZoom(x - vp.left, vp.zoom) + vp.virtual_left,
+		ScaleByZoom(y - vp.top, vp.zoom) + vp.virtual_top
+	};
+	if (_settings_client.gui.three_d_mode) {
+		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+		pt = CameraUnproject(c, pt);
+	}
+
+	return InverseRemapCoords2(pt.x, pt.y, clamp_to_map);
 }
 
 /* When used for zooming, check area below current coordinates (x,y)
@@ -512,7 +539,7 @@ static void AddTileSpriteToDraw(SpriteID image, PaletteID pal, int32_t x, int32_
 	ts.image = image;
 	ts.pal = pal;
 	ts.sub = sub;
-	Point pt = RemapCoords(x, y, z);
+	Point pt = RemapCoordsVP(x, y, z);
 	ts.x = pt.x + extra_offs_x;
 	ts.y = pt.y + extra_offs_y;
 }
@@ -559,7 +586,7 @@ void DrawGroundSpriteAt(SpriteID image, PaletteID pal, int32_t x, int32_t y, int
 	if (_vd.foundation_part == FoundationPart::None) _vd.foundation_part = FoundationPart::Normal;
 
 	if (_vd.foundation[_vd.foundation_part] != -1) {
-		Point pt = RemapCoords(x, y, z);
+		Point pt = RemapCoordsVP(x, y, z);
 		AddChildSpriteToFoundation(image, pal, sub, _vd.foundation_part, pt.x + extra_offs_x * ZOOM_BASE, pt.y + extra_offs_y * ZOOM_BASE);
 	} else {
 		AddTileSpriteToDraw(image, pal, _cur_ti.x + x, _cur_ti.y + y, _cur_ti.z + z, sub, extra_offs_x * ZOOM_BASE, extra_offs_y * ZOOM_BASE);
@@ -628,7 +655,7 @@ void OffsetGroundSprite(int x, int y)
  */
 static void AddCombinedSprite(SpriteID image, PaletteID pal, int x, int y, int z, const SubSprite *sub)
 {
-	Point pt = RemapCoords(x, y, z);
+	Point pt = RemapCoordsVP(x, y, z);
 	const Sprite *spr = GetSprite(image & SPRITE_MASK, SpriteType::Normal);
 
 	if (pt.x + spr->x_offs >= _vd.dpi.left + _vd.dpi.width ||
@@ -685,15 +712,15 @@ void AddSortableSpriteToDraw(SpriteID image, PaletteID pal, int x, int y, int z,
 
 	_vd.last_child = LAST_CHILD_NONE;
 
-	Point pt = RemapCoords(x + bounds.offset.x, y + bounds.offset.y, z + bounds.offset.z);
+	Point pt = RemapCoordsVP(x + bounds.offset.x, y + bounds.offset.y, z + bounds.offset.z);
 	int tmp_left, tmp_top, tmp_x = pt.x, tmp_y = pt.y;
 
 	/* Compute screen extents of sprite */
 	if (image == SPR_EMPTY_BOUNDING_BOX) {
-		left = tmp_left = RemapCoords(x + bounds.extent.x, y, z).x;
-		right           = RemapCoords(x, y + bounds.extent.y, z).x + 1;
-		top  = tmp_top  = RemapCoords(x, y, z + bounds.extent.z).y;
-		bottom          = RemapCoords(x + bounds.extent.x, y + bounds.extent.y, z).y + 1;
+		left = tmp_left = RemapCoordsVP(x + bounds.extent.x, y, z).x;
+		right           = RemapCoordsVP(x, y + bounds.extent.y, z).x + 1;
+		top  = tmp_top  = RemapCoordsVP(x, y, z + bounds.extent.z).y;
+		bottom          = RemapCoordsVP(x + bounds.extent.x, y + bounds.extent.y, z).y + 1;
 	} else {
 		const Sprite *spr = GetSprite(image & SPRITE_MASK, SpriteType::Normal);
 		left = tmp_left = (pt.x += spr->x_offs);
@@ -704,10 +731,10 @@ void AddSortableSpriteToDraw(SpriteID image, PaletteID pal, int x, int y, int z,
 
 	if (_draw_bounding_boxes && (image != SPR_EMPTY_BOUNDING_BOX)) {
 		/* Compute maximal extents of sprite and its bounding box */
-		left   = std::min(left  , RemapCoords(x + bounds.extent.x, y, z).x);
-		right  = std::max(right , RemapCoords(x, y + bounds.extent.y, z).x + 1);
-		top    = std::min(top   , RemapCoords(x, y, z + bounds.extent.z).y);
-		bottom = std::max(bottom, RemapCoords(x + bounds.extent.x, y + bounds.extent.y, z).y + 1);
+		left   = std::min(left  , RemapCoordsVP(x + bounds.extent.x, y, z).x);
+		right  = std::max(right , RemapCoordsVP(x, y + bounds.extent.y, z).x + 1);
+		top    = std::min(top   , RemapCoordsVP(x, y, z + bounds.extent.z).y);
+		bottom = std::max(bottom, RemapCoordsVP(x + bounds.extent.x, y + bounds.extent.y, z).y + 1);
 	}
 
 	/* Do not add the sprite to the viewport, if it is outside */
@@ -1215,6 +1242,12 @@ static void ViewportAddLandscape()
 
 	Point upper_left = InverseRemapCoords(_vd.dpi.left, _vd.dpi.top);
 	Point upper_right = InverseRemapCoords(_vd.dpi.left + _vd.dpi.width, _vd.dpi.top);
+
+	if (_settings_client.gui.three_d_mode) {
+		/* Un-project first: the dpi coordinates live in perspective space. */
+		upper_left = CameraUnproject(_vd.camera, upper_left);
+		upper_right = CameraUnproject(_vd.camera, upper_right);
+	}
 
 	/* Transformations between tile coordinates and viewport rows/columns: See vp_column_row
 	 *   column = y - x
@@ -1742,10 +1775,10 @@ static void ViewportDrawParentSprites(const ParentSpriteToSortVector *psd, const
 static void ViewportDrawBoundingBoxes(const ParentSpriteToSortVector *psd)
 {
 	for (const ParentSpriteToDraw *ps : *psd) {
-		Point pt1 = RemapCoords(ps->xmax + 1, ps->ymax + 1, ps->zmax + 1); // top front corner
-		Point pt2 = RemapCoords(ps->xmin    , ps->ymax + 1, ps->zmax + 1); // top left corner
-		Point pt3 = RemapCoords(ps->xmax + 1, ps->ymin    , ps->zmax + 1); // top right corner
-		Point pt4 = RemapCoords(ps->xmax + 1, ps->ymax + 1, ps->zmin    ); // bottom front corner
+		Point pt1 = RemapCoordsVP(ps->xmax + 1, ps->ymax + 1, ps->zmax + 1); // top front corner
+		Point pt2 = RemapCoordsVP(ps->xmin    , ps->ymax + 1, ps->zmax + 1); // top left corner
+		Point pt3 = RemapCoordsVP(ps->xmax + 1, ps->ymin    , ps->zmax + 1); // top right corner
+		Point pt4 = RemapCoordsVP(ps->xmax + 1, ps->ymax + 1, ps->zmin    ); // bottom front corner
 
 		DrawBox(        pt1.x,         pt1.y,
 		        pt2.x - pt1.x, pt2.y - pt1.y,
@@ -1815,6 +1848,8 @@ static void ViewportDrawStrings(ZoomLevel zoom, const StringSpriteToDrawVector *
 void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom)
 {
 	_vd.dpi.zoom = vp.zoom;
+	_vd.camera = MakeCameraParams(_settings_client.gui.three_d_mode, _settings_client.gui.three_d_strength,
+		vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
 	int mask = ScaleByZoom(-1, vp.zoom);
 
 	_vd.combine_sprites = SpriteCombineMode::None;
@@ -1936,6 +1971,12 @@ static inline void ClampViewportToMap(const Viewport &vp, int *scroll_x, int *sc
 		*scroll_x + vp.virtual_width / 2,
 		*scroll_y + vp.virtual_height / 2
 	};
+
+	if (_settings_client.gui.three_d_mode) {
+		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+		pt = CameraUnproject(c, pt);
+	}
 
 	/* Find nearest tile that is within borders of the map. */
 	bool clamped;
@@ -2131,6 +2172,11 @@ void ConstrainAllViewportsZoom()
  */
 void MarkTileDirtyByTile(TileIndex tile, int bridge_level_offset, int tile_height_override)
 {
+	if (_settings_client.gui.three_d_mode) {
+		/* 3D mode: conservative repaint (perspective projection of dirty rects not implemented). */
+		MarkWholeScreenDirty();
+		return;
+	}
 	Point pt = RemapCoords(TileX(tile) * TILE_SIZE, TileY(tile) * TILE_SIZE, tile_height_override * TILE_HEIGHT);
 	MarkAllViewportsDirty(
 			pt.x - MAX_TILE_EXTENT_LEFT,
@@ -2148,6 +2194,11 @@ void MarkTileDirtyByTile(TileIndex tile, int bridge_level_offset, int tile_heigh
  */
 static void SetSelectionTilesDirty()
 {
+	if (_settings_client.gui.three_d_mode) {
+		/* 3D mode: conservative repaint. */
+		MarkWholeScreenDirty();
+		return;
+	}
 	int x_size = _thd.size.x;
 	int y_size = _thd.size.y;
 
@@ -3602,6 +3653,11 @@ Point GetViewportStationMiddle(const Viewport &vp, const Station *st)
 	int z = GetSlopePixelZ(Clamp(x, 0, Map::SizeX() * TILE_SIZE - 1), Clamp(y, 0, Map::SizeY() * TILE_SIZE - 1));
 
 	Point p = RemapCoords(x, y, z);
+	if (_settings_client.gui.three_d_mode) {
+		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+		p = CameraProject(c, p);
+	}
 	p.x = UnScaleByZoom(p.x - vp.virtual_left, vp.zoom) + vp.left;
 	p.y = UnScaleByZoom(p.y - vp.virtual_top, vp.zoom) + vp.top;
 	return p;
