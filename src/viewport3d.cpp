@@ -273,6 +273,19 @@ static GLuint _vao = 0, _vbo = 0;
 static GLuint _bill_vao = 0, _bill_vbo = 0;
 static std::vector<float> _mesh_data;
 
+/** Build the orbit camera for the given viewport and screen size. */
+static Camera3D OrbitCamera(const Viewport &vp, int width, int height)
+{
+	Point centre = InverseRemapCoords(vp.virtual_left + vp.virtual_width / 2, vp.virtual_top + vp.virtual_height / 2);
+	Camera3D cam;
+	cam.target = { static_cast<float>(centre.x), static_cast<float>(centre.y), static_cast<float>(TileHeight(TileXY(Clamp(centre.x / TILE_WORLD, 0, Map::SizeX() - 1), Clamp(centre.y / TILE_WORLD, 0, Map::SizeY() - 1))) * HEIGHT_WORLD) };
+	cam.distance = static_cast<float>(_settings_client.gui.three_d_distance);
+	cam.yaw = static_cast<float>(_settings_client.gui.three_d_yaw);
+	cam.pitch = 5.0f + _settings_client.gui.three_d_pitch * 0.5f;
+	cam.aspect = static_cast<float>(width) / static_cast<float>(height);
+	return cam;
+}
+
 /**
  * Render the main viewport with the stage-3 GL renderer: the ground as a
  * coloured heightfield mesh from the orbit camera. The result is read back
@@ -290,18 +303,12 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	const ZoomLevel zoom = dpi.zoom;
 
 	/* --- Camera: target = tile under the viewport centre --- */
-	Point centre = InverseRemapCoords(vp.virtual_left + vp.virtual_width / 2, vp.virtual_top + vp.virtual_height / 2);
-	Camera3D cam;
-	cam.target = { static_cast<float>(centre.x), static_cast<float>(centre.y), static_cast<float>(TileHeight(TileXY(Clamp(centre.x / TILE_WORLD, 0, Map::SizeX() - 1), Clamp(centre.y / TILE_WORLD, 0, Map::SizeY() - 1))) * HEIGHT_WORLD) };
-	cam.distance = static_cast<float>(_settings_client.gui.three_d_distance);
-	cam.yaw = static_cast<float>(_settings_client.gui.three_d_yaw);
-	cam.pitch = 5.0f + _settings_client.gui.three_d_pitch * 0.5f;
-	cam.aspect = static_cast<float>(width) / static_cast<float>(height);
+	Camera3D cam = OrbitCamera(vp, width, height);
 
 	/* --- Build the heightfield mesh --- */
 	_mesh_data.clear();
-	const int cx = Clamp(centre.x / TILE_WORLD, 0, Map::SizeX() - 1);
-	const int cy = Clamp(centre.y / TILE_WORLD, 0, Map::SizeY() - 1);
+	const int cx = Clamp(static_cast<int>(cam.target.x) / TILE_WORLD, 0, Map::SizeX() - 1);
+	const int cy = Clamp(static_cast<int>(cam.target.y) / TILE_WORLD, 0, Map::SizeY() - 1);
 	const int x0 = std::max(0, cx - ORBIT_RADIUS_TILES);
 	const int x1 = std::min(static_cast<int>(Map::SizeX()), cx + ORBIT_RADIUS_TILES);
 	const int y0 = std::max(0, cy - ORBIT_RADIUS_TILES);
@@ -465,4 +472,99 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 			                           static_cast<uint32_t>(src_row[x * 4 + 2]);
 		}
 	}
+}
+
+/** Möller-Trumbore ray/triangle intersection; returns the t parameter or -1. */
+static float RayTriangle(const Vec3 &o, const Vec3 &d, const Vec3 &a, const Vec3 &b, const Vec3 &c)
+{
+	const Vec3 e1 = b - a;
+	const Vec3 e2 = c - a;
+	const Vec3 p = d.Cross(e2);
+	const float det = e1.Dot(p);
+	if (std::abs(det) < 1e-9f) return -1.0f;
+	const float inv = 1.0f / det;
+	const Vec3 tvec = o - a;
+	const float u = tvec.Dot(p) * inv;
+	if (u < 0.0f || u > 1.0f) return -1.0f;
+	const Vec3 q = tvec.Cross(e1);
+	const float v = d.Dot(q) * inv;
+	if (v < 0.0f || u + v > 1.0f) return -1.0f;
+	const float t = e2.Dot(q) * inv;
+	return t >= 0.0f ? t : -1.0f;
+}
+
+/**
+ * Pick the tile under the given viewport pixel in orbit mode by casting a
+ * ray from the camera against the heightfield mesh (2D grid DDA + two
+ * triangles per tile).
+ */
+bool PickTile3D(const Viewport &vp, int x, int y, TileIndex &tile)
+{
+	const int width = UnScaleByZoom(vp.virtual_width, vp.zoom);
+	const int height = UnScaleByZoom(vp.virtual_height, vp.zoom);
+	if (width <= 0 || height <= 0) return false;
+	const Camera3D cam = OrbitCamera(vp, width, height);
+	const auto [origin, dir] = cam.ScreenRay(static_cast<float>(x), static_cast<float>(y), static_cast<float>(width), static_cast<float>(height));
+
+	const Vec3 &o = origin;
+	int tx = static_cast<int>(std::floor(o.x / TILE_WORLD));
+	int ty = static_cast<int>(std::floor(o.y / TILE_WORLD));
+	const int step_x = dir.x > 0.0f ? 1 : -1;
+	const int step_y = dir.y > 0.0f ? 1 : -1;
+	const float inv_dx = std::abs(1.0f / dir.x);
+	const float inv_dy = std::abs(1.0f / dir.y);
+	const float t_dx = TILE_WORLD * inv_dx;
+	const float t_dy = TILE_WORLD * inv_dy;
+	float t_max_x = (step_x > 0 ? (tx + 1) * TILE_WORLD - o.x : o.x - tx * TILE_WORLD) * inv_dx;
+	float t_max_y = (step_y > 0 ? (ty + 1) * TILE_WORLD - o.y : o.y - ty * TILE_WORLD) * inv_dy;
+	constexpr float T_LIMIT = 300000.0f;
+	constexpr int MAX_STEPS = 8000;
+
+	int i = 0;
+	for (; i < MAX_STEPS; i++) {
+		if (tx >= 0 && ty >= 0 && tx < Map::SizeX() && ty < Map::SizeY()) {
+			/* Check the tile plus its 8 neighbours: the camera position is
+			 * float-rounded, which can shift the DDA diagonal by half a
+			 * tile and make the ray skip the actual surface tile. */
+			for (int dy = -1; dy <= 1; dy++) {
+				for (int dx = -1; dx <= 1; dx++) {
+					const int ptx = tx + dx;
+					const int pty = ty + dy;
+					if (ptx < 0 || pty < 0 || ptx >= Map::SizeX() || pty >= Map::SizeY()) continue;
+					const TileIndex tile_here = TileXY(ptx, pty);
+					auto [slope, z] = GetTileSlopeZ(tile_here);
+					const float ts = static_cast<float>(TILE_WORLD);
+					const float wx = static_cast<float>(ptx * TILE_WORLD);
+					const float wy = static_cast<float>(pty * TILE_WORLD);
+					const float zn = static_cast<float>(z + ((slope & SLOPE_N) ? HEIGHT_WORLD : 0));
+					const float ze = static_cast<float>(z + ((slope & SLOPE_E) ? HEIGHT_WORLD : 0));
+					const float zs = static_cast<float>(z + ((slope & SLOPE_S) ? HEIGHT_WORLD : 0));
+					const float zw = static_cast<float>(z + ((slope & SLOPE_W) ? HEIGHT_WORLD : 0));
+					const Vec3 n = { wx, wy, zn };
+					const Vec3 e = { wx + ts, wy, ze };
+					const Vec3 s = { wx + ts, wy + ts, zs };
+					const Vec3 w = { wx, wy + ts, zw };
+					if (RayTriangle(o, dir, n, e, s) >= 0.0f || RayTriangle(o, dir, n, s, w) >= 0.0f) {
+						tile = tile_here;
+							return true;
+					}
+				}
+			}
+		}
+		if (t_max_x < t_max_y) {
+			tx += step_x;
+			t_max_x += t_dx;
+		} else {
+			ty += step_y;
+			t_max_y += t_dy;
+		}
+		/* The ray leaves the map only past the edge in the direction it is
+		 * travelling (the camera can start outside the map, e.g. ty < 0).
+		 * Note: Map::SizeX/Y() is unsigned, so cast before comparing the
+		 * signed tile coordinates. */
+		if (t_max_x > T_LIMIT && t_max_y > T_LIMIT) break;
+		if (step_x > 0 ? tx > static_cast<int>(Map::SizeX()) : tx < -1) break;
+		if (step_y > 0 ? ty > static_cast<int>(Map::SizeY()) : ty < -1) break;
+	}
+	return false;
 }

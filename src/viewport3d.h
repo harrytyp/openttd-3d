@@ -11,11 +11,15 @@
 #define VIEWPORT3D_H
 
 #include "core/geometry_type.hpp"
+#include "tile_type.h"
 
 struct Viewport;
 struct DrawPixelInfo;
 
 /** Render the main viewport with the stage-3 GL renderer (ground heightfield mesh). */
 void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi);
+
+/** Pick the tile under the given viewport pixel in orbit mode (raycast against the heightfield). */
+bool PickTile3D(const Viewport &vp, int x, int y, TileIndex &tile);
 
 #endif /* VIEWPORT3D_H */
