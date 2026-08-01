@@ -150,10 +150,11 @@ inline int ZoomScaleForDepth(const CameraParams &c, int iso_y)
 	if (denom <= 0) return 2;
 
 	const int64_t rel = (static_cast<int64_t>(c.focal) + iso_y - c.focus_y) * 100 / denom;
-	/* Midpoints between the discrete steps (100/50/25%), shifted by pitch:
-	 * flatter camera -> shrink more aggressively in the distance. */
-	const int t1 = 75 + (c.pitch - 50) / 5;
-	const int t2 = 37 + (c.pitch - 50) / 5;
+	/* Step thresholds, shifted by pitch: flatter camera -> shrink more
+	 * aggressively in the distance. 95/55: only the nearest objects stay
+	 * full-size, so the depth effect is clearly visible. */
+	const int t1 = 95 + (c.pitch - 50) / 10;
+	const int t2 = 55 + (c.pitch - 50) / 10;
 	if (rel >= t1) return 0;
 	if (rel >= t2) return 1;
 	return 2;
