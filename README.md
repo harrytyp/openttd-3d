@@ -24,12 +24,12 @@ Working on `master`:
 |-------|------|--------|
 | 1 | Perspective camera: mode-7-style projection in the viewport renderer, scroll/picking corrected, CTRL+D hotkey | ✅ Done |
 | 2 | Depth scaling: sprites shrink with distance — continuous perspective factor, pitch-dependent, sky above the horizon | ✅ Done |
-| 3 | True 3D rendering: GL pipeline, real ground mesh (heightmap), camera yaw, continuous GPU scaling | ⬜ Not started — months of work, currently out of scope |
+| 3 | True 3D rendering: GL pipeline, real ground mesh (heightmap), free mouse-driven camera (orbit / zoom / pan / yaw), Z-buffer | ⬜ Not started — [detailed plan in issue #3](https://github.com/harrytyp/openttd-3d/issues/3) |
 
 ### Notes on stage 3
 
-- A yaw (rotation) is not possible with the current sprite system: houses and industry have 4 fixed views, vehicles 8, but trees, ground and signals exist in only one view. A real 3D renderer would lift that limitation.
-- The current depth scaling is discrete-friendly software scaling; a GL pipeline would replace it with GPU-side continuous scaling.
+- The full implementation plan (10 steps, milestones, risks) is tracked in [issue #3](https://github.com/harrytyp/openttd-3d/issues/3).
+- A yaw (rotation) is not possible with the current sprite system: houses and industry have 4 fixed views, vehicles 8, but trees, ground and signals exist in only one view. The stage-3 plan solves this with camera-facing billboards plus yaw-quantised view selection for multi-view sprites.
 
 ## Building
 
