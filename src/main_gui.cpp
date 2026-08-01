@@ -423,8 +423,9 @@ struct MainWindow : Window
 				if (!HideActiveErrorMessage()) return EventState::NotHandled;
 				break;
 
-			case GHK_3D_TOGGLE: // toggle experimental 3D perspective camera
-				_settings_client.gui.three_d_mode = !_settings_client.gui.three_d_mode;
+			case GHK_3D_TOGGLE: // toggle the experimental 3D camera (2D <-> orbit GL)
+				_settings_client.gui.three_d_camera = _settings_client.gui.three_d_camera == 2 ? 0 : 2;
+				_settings_client.gui.three_d_mode = false; /* keep the mode-7 path out of the orbit renderer */
 				MarkWholeScreenDirty();
 				break;
 

@@ -131,7 +131,9 @@ static VpSpriteSorter _vp_sprite_sorter = nullptr;
 static Point MapXYZToViewport(const Viewport &vp, int x, int y, int z)
 {
 	Point p = RemapCoords(x, y, z);
-	if (_settings_client.gui.three_d_mode) {
+	/* The mode-7 projection only applies to the tilted camera; the orbit
+	 * renderer collects the scene in plain 2D coordinates. */
+	if (_settings_client.gui.three_d_mode && _settings_client.gui.three_d_camera != 2) {
 		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
 			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 		p = CameraProject(c, p);
@@ -148,7 +150,7 @@ static Point MapXYZToViewport(const Viewport &vp, int x, int y, int z)
 static inline Point RemapCoordsVP(int x, int y, int z)
 {
 	Point p = RemapCoords(x, y, z);
-	if (_settings_client.gui.three_d_mode) p = CameraProject(_vd.camera, p);
+	if (_settings_client.gui.three_d_mode && _settings_client.gui.three_d_camera != 2) p = CameraProject(_vd.camera, p);
 	return p;
 }
 
@@ -1802,7 +1804,7 @@ static void ViewportDrawStrings(ZoomLevel zoom, const StringSpriteToDrawVector *
 void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom)
 {
 	_vd.dpi.zoom = vp.zoom;
-	_vd.camera = MakeCameraParams(_settings_client.gui.three_d_mode, _settings_client.gui.three_d_strength,
+	_vd.camera = MakeCameraParams(_settings_client.gui.three_d_mode && _settings_client.gui.three_d_camera != 2, _settings_client.gui.three_d_strength,
 		vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 	int mask = ScaleByZoom(-1, vp.zoom);
 
@@ -3669,7 +3671,9 @@ Point GetViewportStationMiddle(const Viewport &vp, const Station *st)
 	int z = GetSlopePixelZ(Clamp(x, 0, Map::SizeX() * TILE_SIZE - 1), Clamp(y, 0, Map::SizeY() * TILE_SIZE - 1));
 
 	Point p = RemapCoords(x, y, z);
-	if (_settings_client.gui.three_d_mode) {
+	/* The mode-7 projection only applies to the tilted camera; the orbit
+	 * renderer collects the scene in plain 2D coordinates. */
+	if (_settings_client.gui.three_d_mode && _settings_client.gui.three_d_camera != 2) {
 		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
 			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 		p = CameraProject(c, p);
