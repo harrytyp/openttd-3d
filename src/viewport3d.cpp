@@ -178,7 +178,14 @@ static bool CompileShader()
 		"in vec2 v_uv;\n"
 		"uniform sampler2D u_tex;\n"
 		"out vec4 frag;\n"
-		"void main() { vec4 t = texture(u_tex, v_uv); if (t.a < 0.5) discard; frag = vec4(t.rgb, 1.0); }\n";
+		"void main() {\n"
+		"    vec4 t = texture(u_tex, v_uv);\n"
+		"    if (t.a < 0.5) discard;\n"
+		"    /* Fully opaque pixels stay opaque; semi-transparent ones (glass,\n"
+		"     * smoke, water animation) blend against the depth-tested scene. */\n"
+		"    float a = t.a >= 0.98 ? 1.0 : t.a;\n"
+		"    frag = vec4(t.rgb, a);\n"
+		"}\n";
 	GLuint bvs = p_glCreateShader(GL_VERTEX_SHADER);
 	p_glShaderSource(bvs, 1, &bvs_src, nullptr);
 	p_glCompileShader(bvs);
@@ -358,6 +365,8 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	p_glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(_mesh_data.size() / 6));
 
 	/* --- Billboards: camera-facing quads for the collected parent sprites --- */
+	p_glEnable(GL_BLEND);
+	p_glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	p_glUseProgram(_bill_program);
 	p_glUniformMatrix4fv(_u_mvp_bill, 1, GL_FALSE, mvp.m);
 	p_glActiveTexture(GL_TEXTURE0);
