@@ -127,39 +127,28 @@ inline Point CameraUnproject(const CameraParams &c, Point s)
 }
 
 /**
- * Discrete depth-scaling for sprites: how much to shrink a sprite at the
- * given isometric depth, expressed as a zoom-level offset (0 = full size,
- * 1 = half size, 2 = quarter size, 3 = eighth size).
+ * Continuous depth-scaling factor for sprites: how much to shrink a sprite
+ * at the given isometric depth, relative to the nearest visible point
+ * (the bottom viewport edge, #CameraParams::iso_ref, scale 1.0).
  *
- * The perspective projection scales objects by (focal + iso_y - focus_y) / focal.
- * We normalise this against the nearest visible point (the bottom edge of
- * the viewport, #CameraParams::iso_ref) and pick the discrete zoom step
- * closest to the continuous scale. Four zones split the visible depth
- * range so the size decrease is visible across the whole viewport. The
- * step thresholds get more aggressive with a flatter pitch, so distant
- * sprites shrink visibly when the camera is tilted down.
+ * This is the exact perspective scale (focal + iso_y - focus_y) / focal,
+ * normalised against the bottom edge, so distant sprites shrink smoothly
+ * with the distance from the camera instead of jumping between zoom
+ * levels. Clamped to [0.1, 1.0].
  *
  * @param c Camera parameters (must be enabled).
  * @param iso_y Isometric (unprojected) y of the sprite anchor.
- * @return 0, 1, 2 or 3.
+ * @return Scale factor in [0.1, 1.0]; 1.0 means full size.
  */
-inline int ZoomScaleForDepth(const CameraParams &c, int iso_y)
+inline double ScaleForDepth(const CameraParams &c, int iso_y)
 {
-	if (!c.enabled) return 0;
+	if (!c.enabled) return 1.0;
 
 	const int64_t denom = static_cast<int64_t>(c.focal) + c.iso_ref - c.focus_y;
-	if (denom <= 0) return 3;
+	if (denom <= 0) return 0.1;
 
-	const int64_t rel = (static_cast<int64_t>(c.focal) + iso_y - c.focus_y) * 100 / denom;
-	/* Step thresholds, shifted by pitch: flatter camera -> shrink more
-	 * aggressively in the distance. */
-	const int t1 = 95 + (c.pitch - 50) / 10;
-	const int t2 = 70 + (c.pitch - 50) / 10;
-	const int t3 = 45 + (c.pitch - 50) / 10;
-	if (rel >= t1) return 0;
-	if (rel >= t2) return 1;
-	if (rel >= t3) return 2;
-	return 3;
+	const double rel = static_cast<double>(c.focal + iso_y - c.focus_y) / denom;
+	return std::clamp(rel, 0.1, 1.0);
 }
 
 #endif /* PROJECTIVE_HPP */

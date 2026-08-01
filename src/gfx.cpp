@@ -13,6 +13,7 @@
 #include "progress.h"
 #include "zoom_func.h"
 #include "blitter/factory.hpp"
+#include "blitter/32bpp_sse2.hpp"
 #include "video/video_driver.hpp"
 #include "strings_func.h"
 #include "settings_type.h"
@@ -54,10 +55,12 @@ GameSessionStats _game_session_stats; ///< Statistics about the current session.
 static EnumIndexArray<std::array<uint8_t, 244>, FontSize, FontSize::End> _stringwidth_table; ///< Cache containing width of often used characters. @see GetCharacterWidth()
 DrawPixelInfo *_cur_dpi;
 
-static void GfxMainBlitterViewport(const Sprite *sprite, int x, int y, BlitterMode mode, const SubSprite *sub = nullptr, SpriteID sprite_id = SPR_CURSOR_MOUSE, int zoom_scale = 0);
+static void GfxMainBlitterViewport(const Sprite *sprite, int x, int y, BlitterMode mode, const SubSprite *sub = nullptr, SpriteID sprite_id = SPR_CURSOR_MOUSE, double scale_f = 1.0);
 static void GfxMainBlitter(const Sprite *sprite, int x, int y, BlitterMode mode, const SubSprite *sub = nullptr, SpriteID sprite_id = SPR_CURSOR_MOUSE, ZoomLevel zoom = ZoomLevel::Min);
 
 static ReusableBuffer<uint8_t> _cursor_backup;
+static ReusableBuffer<uint8_t> _scale_buffer; ///< Scratch buffer for continuous depth scaling.
+static ReusableBuffer<uint16_t> _scale_xmap;  ///< Precomputed source-x mapping for depth scaling.
 
 ZoomLevel _gui_zoom = ZoomLevel::Normal; ///< GUI Zoom level
 ZoomLevel _font_zoom = _gui_zoom;           ///< Sprite font Zoom level (not clamped)
@@ -1006,22 +1009,22 @@ static BlitterMode GetBlitterMode(PaletteID pal)
  * @param y    Top coordinate of image in viewport, scaled by zoom
  * @param sub  If available, draw only specified part of the sprite
  */
-void DrawSpriteViewport(SpriteID img, PaletteID pal, int x, int y, const SubSprite *sub, int zoom_scale)
+void DrawSpriteViewport(SpriteID img, PaletteID pal, int x, int y, const SubSprite *sub, double scale_f)
 {
 	SpriteID real_sprite = GB(img, 0, SPRITE_WIDTH);
 	if (HasBit(img, PALETTE_MODIFIER_TRANSPARENT)) {
 		pal = GB(pal, 0, PALETTE_WIDTH);
 		_colour_remap_ptr = GetNonSprite(pal, SpriteType::Recolour) + 1;
-		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, pal == PALETTE_TO_TRANSPARENT ? BlitterMode::Transparent : BlitterMode::TransparentRemap, sub, real_sprite, zoom_scale);
+		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, pal == PALETTE_TO_TRANSPARENT ? BlitterMode::Transparent : BlitterMode::TransparentRemap, sub, real_sprite, scale_f);
 	} else if (pal != PAL_NONE) {
 		if (HasBit(pal, PALETTE_TEXT_RECOLOUR)) {
 			SetColourRemap((TextColour)GB(pal, 0, PALETTE_WIDTH));
 		} else {
 			_colour_remap_ptr = GetNonSprite(GB(pal, 0, PALETTE_WIDTH), SpriteType::Recolour) + 1;
 		}
-		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, GetBlitterMode(pal), sub, real_sprite, zoom_scale);
+		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, GetBlitterMode(pal), sub, real_sprite, scale_f);
 	} else {
-		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, BlitterMode::Normal, sub, real_sprite, zoom_scale);
+		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, BlitterMode::Normal, sub, real_sprite, scale_f);
 	}
 }
 
@@ -1067,36 +1070,93 @@ void DrawSprite(SpriteID img, PaletteID pal, int x, int y, const SubSprite *sub,
  * @tparam SCALED_XY Whether the X and Y are scaled or unscaled.
  */
 template <int ZOOM_BASE, bool SCALED_XY>
-static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mode, const SubSprite * const sub, SpriteID sprite_id, ZoomLevel zoom, int zoom_scale = 0, const DrawPixelInfo *dst = nullptr)
+static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mode, const SubSprite * const sub, SpriteID sprite_id, ZoomLevel zoom, double scale_f = 1.0, const DrawPixelInfo *dst = nullptr)
 {
 	const DrawPixelInfo *dpi = (dst != nullptr) ? dst : _cur_dpi;
-	const ZoomLevel draw_zoom = static_cast<ZoomLevel>(to_underlying(zoom) + zoom_scale);
 	Blitter::BlitterParams bp;
 
 	if (SCALED_XY) {
 		/* Scale it */
-		x = ScaleByZoom(x, draw_zoom);
-		y = ScaleByZoom(y, draw_zoom);
+		x = ScaleByZoom(x, zoom);
+		y = ScaleByZoom(y, zoom);
 	}
 
 	/* Move to the correct offset */
 	x += sprite->x_offs;
 	y += sprite->y_offs;
 
-	if (zoom_scale != 0) {
-		/* 3D depth scaling: keep the anchor position fixed while shrinking the
-		 * sprite. Scale the position (relative to the draw area) by the same
-		 * factor as the sprite size, so both stay consistent. */
-		x = ((x - dpi->left) << zoom_scale) + dpi->left;
-		y = ((y - dpi->top) << zoom_scale) + dpi->top;
+	int spr_width = sprite->width;
+	int spr_height = sprite->height;
+	const uint8_t *spr_data = reinterpret_cast<const uint8_t *>(sprite->data);
+	int zoom_scale = 0;
+	bool soft_scaled = false;
+
+	if (scale_f < 1.0 && sub == nullptr) {
+#if defined(WITH_SSE)
+		/* 3D depth scaling (continuous): shrink the sprite toward its anchor by
+		 * the exact perspective factor. The 32bpp SSE blitters store sprites as
+		 * RGBA mip-maps (SpriteData); scale the mip-map of the current zoom in
+		 * software and draw the scaled copy 1:1. */
+		const auto *sd = reinterpret_cast<const Blitter_32bppSSE_Base::SpriteData *>(sprite->data);
+		const auto &si = sd->infos[zoom];
+		const int src_w = si.sprite_width;
+		const int src_h = UnScaleByZoom(sprite->height, zoom);
+		if (src_w > 0 && src_w == UnScaleByZoom(sprite->width, zoom)) {
+			x = static_cast<int>(std::lround((x - dpi->left) * scale_f)) + dpi->left;
+			y = static_cast<int>(std::lround((y - dpi->top) * scale_f)) + dpi->top;
+
+			spr_width = std::max(1, static_cast<int>(src_w * scale_f));
+			spr_height = std::max(1, static_cast<int>(src_h * scale_f));
+			const size_t mv_size = static_cast<size_t>(spr_width) * spr_height;
+			const size_t rgba_size = mv_size * sizeof(Colour);
+			uint8_t *tmp = _scale_buffer.Allocate(sizeof(Blitter_32bppSSE_Base::SpriteData) + mv_size + rgba_size);
+			auto *dst_sd = reinterpret_cast<Blitter_32bppSSE_Base::SpriteData *>(tmp);
+			dst_sd->flags = sd->flags;
+			dst_sd->infos = sd->infos;
+			dst_sd->infos[zoom] = Blitter_32bppSSE_Base::SpriteInfo{ static_cast<uint32_t>(mv_size), 0, static_cast<uint16_t>(spr_width * 4), static_cast<uint16_t>(spr_width) };
+			uint8_t *mv = dst_sd->data;
+			uint8_t *rgba = dst_sd->data + mv_size;
+			const Colour *src_rgba = reinterpret_cast<const Colour *>(&sd->data[si.sprite_offset]);
+			const uint8_t *src_mv = &sd->data[si.mv_offset];
+			/* Precompute the source-x mapping once per sprite row (avoids a
+			 * division per pixel). */
+			uint16_t *x_map = _scale_xmap.Allocate(spr_width);
+			for (int sx = 0; sx < spr_width; sx++) {
+				x_map[sx] = static_cast<uint16_t>(sx * src_w / spr_width);
+			}
+			for (int sy = 0; sy < spr_height; sy++) {
+				const int src_y = sy * src_h / spr_height;
+				const Colour *src_row = reinterpret_cast<const Colour *>(reinterpret_cast<const uint8_t *>(src_rgba) + src_y * si.sprite_line_size);
+				const uint8_t *mv_row_src = src_mv + src_y * src_w;
+				Colour *dst_row = reinterpret_cast<Colour *>(rgba + sy * spr_width * 4);
+				uint8_t *mv_dst = mv + sy * spr_width;
+				for (int sx = 0; sx < spr_width; sx++) {
+					const int src_x = x_map[sx];
+					dst_row[sx] = src_row[src_x];
+					mv_dst[sx] = mv_row_src[src_x];
+				}
+			}
+			spr_data = tmp;
+			soft_scaled = true;
+		}
+#endif
+		if (!soft_scaled) {
+			/* Fallback for non-SpriteData blitters and sub sprites: discrete
+			 * zoom step closest to the requested scale. */
+			zoom_scale = scale_f < 0.22 ? 3 : (scale_f < 0.45 ? 2 : (scale_f < 0.9 ? 1 : 0));
+			x = ((x - dpi->left) << zoom_scale) + dpi->left;
+			y = ((y - dpi->top) << zoom_scale) + dpi->top;
+		}
 	}
+
+	const ZoomLevel draw_zoom = static_cast<ZoomLevel>(to_underlying(zoom) + zoom_scale);
 
 	if (sub == nullptr) {
 		/* No clipping. */
 		bp.skip_left = 0;
 		bp.skip_top = 0;
-		bp.width = UnScaleByZoom(sprite->width, draw_zoom);
-		bp.height = UnScaleByZoom(sprite->height, draw_zoom);
+		bp.width = soft_scaled ? spr_width : UnScaleByZoom(spr_width, draw_zoom);
+		bp.height = soft_scaled ? spr_height : UnScaleByZoom(spr_height, draw_zoom);
 	} else {
 		/* Amount of pixels to clip from the source sprite */
 		int clip_left   = std::max(0,                   -sprite->x_offs +  sub->left        * ZOOM_BASE );
@@ -1109,17 +1169,17 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 
 		bp.skip_left = UnScaleByZoomLower(clip_left, draw_zoom);
 		bp.skip_top = UnScaleByZoomLower(clip_top, draw_zoom);
-		bp.width = UnScaleByZoom(sprite->width - clip_left - clip_right, draw_zoom);
-		bp.height = UnScaleByZoom(sprite->height - clip_top - clip_bottom, draw_zoom);
+		bp.width = UnScaleByZoom(spr_width - clip_left - clip_right, draw_zoom);
+		bp.height = UnScaleByZoom(spr_height - clip_top - clip_bottom, draw_zoom);
 
 		x += ScaleByZoom(bp.skip_left, draw_zoom);
 		y += ScaleByZoom(bp.skip_top, draw_zoom);
 	}
 
 	/* Copy the main data directly from the sprite */
-	bp.sprite = sprite->data;
-	bp.sprite_width = sprite->width;
-	bp.sprite_height = sprite->height;
+	bp.sprite = spr_data;
+	bp.sprite_width = spr_width;
+	bp.sprite_height = spr_height;
 	bp.top = 0;
 	bp.left = 0;
 
@@ -1127,8 +1187,8 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 	bp.pitch = dpi->pitch;
 	bp.remap = _colour_remap_ptr;
 
-	assert(sprite->width > 0);
-	assert(sprite->height > 0);
+	assert(spr_width > 0);
+	assert(spr_height > 0);
 
 	if (bp.width <= 0) return;
 	if (bp.height <= 0) return;
@@ -1171,8 +1231,8 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 		if (bp.width <= 0) return;
 	}
 
-	assert(bp.skip_left + bp.width <= UnScaleByZoom(sprite->width, draw_zoom));
-	assert(bp.skip_top + bp.height <= UnScaleByZoom(sprite->height, draw_zoom));
+	assert(bp.skip_left + bp.width <= (soft_scaled ? spr_width : UnScaleByZoom(spr_width, draw_zoom)));
+	assert(bp.skip_top + bp.height <= (soft_scaled ? spr_height : UnScaleByZoom(spr_height, draw_zoom)));
 
 	/* We do not want to catch the mouse. However we also use that spritenumber for unknown (text) sprites. */
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW && sprite_id != SPR_CURSOR_MOUSE) {
@@ -1237,7 +1297,7 @@ std::unique_ptr<uint32_t[]> DrawSpriteToRgbaBuffer(SpriteID spriteId, ZoomLevel 
 
 	/* Temporarily disable screen animations while blitting - This prevents 40bpp_anim from writing to the animation buffer. */
 	Backup<bool> disable_anim(_screen_disable_anim, true);
-	GfxBlitter<1, true>(sprite, 0, 0, BlitterMode::Normal, nullptr, real_sprite, zoom, 0, &dpi);
+	GfxBlitter<1, true>(sprite, 0, 0, BlitterMode::Normal, nullptr, real_sprite, zoom, 1.0, &dpi);
 	disable_anim.Restore();
 
 	if (blitter->GetScreenDepth() == 8) {
@@ -1252,9 +1312,9 @@ std::unique_ptr<uint32_t[]> DrawSpriteToRgbaBuffer(SpriteID spriteId, ZoomLevel 
 	return result;
 }
 
-static void GfxMainBlitterViewport(const Sprite *sprite, int x, int y, BlitterMode mode, const SubSprite *sub, SpriteID sprite_id, int zoom_scale)
+static void GfxMainBlitterViewport(const Sprite *sprite, int x, int y, BlitterMode mode, const SubSprite *sub, SpriteID sprite_id, double scale_f)
 {
-	GfxBlitter<ZOOM_BASE, false>(sprite, x, y, mode, sub, sprite_id, _cur_dpi->zoom, zoom_scale);
+	GfxBlitter<ZOOM_BASE, false>(sprite, x, y, mode, sub, sprite_id, _cur_dpi->zoom, scale_f);
 }
 
 static void GfxMainBlitter(const Sprite *sprite, int x, int y, BlitterMode mode, const SubSprite *sub, SpriteID sprite_id, ZoomLevel zoom)

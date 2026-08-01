@@ -103,22 +103,24 @@ TEST_CASE("Projective - depth scaling steps")
 	REQUIRE(c.enabled);
 
 	/* Reference: the bottom viewport edge is the nearest visible point. */
-	CHECK(ZoomScaleForDepth(c, c.iso_ref) == 0);
-	CHECK(ZoomScaleForDepth(c, c.iso_ref + 1000) == 0);
-	/* Centre (rel ~81%) and horizon (rel ~76%) -> half size. */
-	CHECK(ZoomScaleForDepth(c, c.center_y) == 1);
-	CHECK(ZoomScaleForDepth(c, c.focus_y) == 1);
-	/* Relative scale ~0.6 -> quarter size. */
-	CHECK(ZoomScaleForDepth(c, c.focus_y + 60 * (c.focal + c.iso_ref - c.focus_y) / 100 - c.focal) == 2);
-	/* Relative scale ~0.3 -> eighth size. */
-	CHECK(ZoomScaleForDepth(c, c.focus_y + 30 * (c.focal + c.iso_ref - c.focus_y) / 100 - c.focal) == 3);
-	/* Behind the camera -> eighth size. */
-	CHECK(ZoomScaleForDepth(c, c.focus_y - c.focal) == 3);
+	CHECK(ScaleForDepth(c, c.iso_ref) == 1.0);
+	CHECK(ScaleForDepth(c, c.iso_ref + 1000) == 1.0);
+	/* The centre (~81%) and the horizon (~76%) shrink smoothly. */
+	const double centre_scale = ScaleForDepth(c, c.center_y);
+	CHECK(centre_scale > 0.7);
+	CHECK(centre_scale < 0.9);
+	const double horizon_scale = ScaleForDepth(c, c.focus_y);
+	CHECK(horizon_scale > 0.6);
+	CHECK(horizon_scale < 0.85);
+	/* Monotone: farther away -> smaller. */
+	CHECK(ScaleForDepth(c, c.center_y) > ScaleForDepth(c, c.focus_y - c.focal / 2));
+	/* Behind the camera -> clamped to the minimum. */
+	CHECK(ScaleForDepth(c, c.focus_y - c.focal) == 0.1);
 
 	/* Disabled camera never scales. */
 	const CameraParams off = MakeCameraParams(false, 50, 0, 0, 640, 480);
-	CHECK(ZoomScaleForDepth(off, 0) == 0);
-	CHECK(ZoomScaleForDepth(off, 100000) == 0);
+	CHECK(ScaleForDepth(off, 100) == 1.0);
+	CHECK(ScaleForDepth(off, 100000) == 1.0);
 }
 
 TEST_CASE("Projective - flatter pitch scales the distance more")
@@ -128,8 +130,7 @@ TEST_CASE("Projective - flatter pitch scales the distance more")
 	REQUIRE(flat.pitch == 100);
 
 	/* Same isometric depth: with a flat camera the same sprite shrinks
-	 * one step more than with the default pitch. */
+	 * more than with the default pitch. */
 	const int iso_y = def.focus_y + 75 * (def.focal + def.iso_ref - def.focus_y) / 100 - def.focal;
-	CHECK(ZoomScaleForDepth(def, iso_y) == 1);
-	CHECK(ZoomScaleForDepth(flat, iso_y) == 2);
+	CHECK(ScaleForDepth(def, iso_y) > ScaleForDepth(flat, iso_y));
 }
