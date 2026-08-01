@@ -287,7 +287,7 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	Camera3D cam;
 	cam.target = { static_cast<float>(centre.x), static_cast<float>(centre.y), static_cast<float>(TileHeight(TileXY(Clamp(centre.x / TILE_WORLD, 0, Map::SizeX() - 1), Clamp(centre.y / TILE_WORLD, 0, Map::SizeY() - 1))) * HEIGHT_WORLD) };
 	cam.distance = 3200.0f;
-	cam.yaw = 45.0f;
+	cam.yaw = static_cast<float>(_settings_client.gui.three_d_yaw);
 	cam.pitch = 5.0f + _settings_client.gui.three_d_pitch * 0.5f;
 	cam.aspect = static_cast<float>(width) / static_cast<float>(height);
 
@@ -382,12 +382,27 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 			fwd.y /= fl;
 		}
 		const Vec3 right = { -fwd.y, fwd.x, 0 };
+		/* View quantisation shift: 90° steps relative to the legacy 45° yaw. */
+		const int yaw_shift = static_cast<int>(std::round((cam.yaw - 45.0f) / 90.0f)) & 3;
 
 		for (const ParentSpriteToDraw &ps : _vd.parent_sprites_to_draw) {
 			const SpriteID real = ps.image & SPRITE_MASK;
 			const Sprite *spr = GetSprite(real, SpriteType::Normal);
 			if (spr == nullptr || spr->width == 0 || spr->height == 0) continue;
-			const GLuint tex = GetSpriteTexture(real, zoom);
+			/* Yaw quantisation: houses and industry have 4 fixed views, so
+			 * pick the view matching the camera yaw (in 90° steps relative
+			 * to the legacy 45° direction). Trees/ground/vehicles keep their
+			 * single view. */
+			SpriteID tex_sprite = real;
+			if (yaw_shift != 0) {
+				const int tx = Clamp(ps.xmin / TILE_WORLD, 0, Map::SizeX() - 1);
+				const int ty = Clamp(ps.ymin / TILE_WORLD, 0, Map::SizeY() - 1);
+				const TileType tt = GetTileType(TileXY(tx, ty));
+				if (tt == TileType::House || tt == TileType::Industry) {
+					tex_sprite = real + yaw_shift;
+				}
+			}
+			const GLuint tex = GetSpriteTexture(tex_sprite, zoom);
 			if (tex == 0) continue;
 			/* Sprite pixel -> world: 0.5 world units per pixel (tile = 16
 			 * world units = 32 screen pixels in the legacy projection). */
