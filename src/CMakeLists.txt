@@ -571,6 +571,7 @@ add_files(
     viewport.cpp
     viewport3d.cpp
     viewport_cmd.h
+    viewport_drawer.h
     viewport_func.h
     viewport_gui.cpp
     viewport_kdtree.h

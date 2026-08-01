@@ -86,6 +86,7 @@
 #include "viewport_kdtree.h"
 #include "town_kdtree.h"
 #include "viewport_sprite_sorter.h"
+#include "viewport_drawer.h"
 #include "bridge_map.h"
 #include "company_base.h"
 #include "command_func.h"
@@ -115,84 +116,10 @@ static const int MAX_TILE_EXTENT_RIGHT  = ZOOM_BASE * TILE_PIXELS;              
 static const int MAX_TILE_EXTENT_TOP    = ZOOM_BASE * MAX_BUILDING_PIXELS;             ///< Maximum top    extent of tile relative to north corner (not considering bridges).
 static const int MAX_TILE_EXTENT_BOTTOM = ZOOM_BASE * (TILE_PIXELS + 2 * TILE_HEIGHT); ///< Maximum bottom extent of tile relative to north corner (worst case: #SLOPE_STEEP_N).
 
-struct StringSpriteToDraw {
-	std::string string;
-	uint16_t width;
-	Colours colour;
-	ViewportStringFlags flags;
-	int32_t x;
-	int32_t y;
-};
-
-struct TileSpriteToDraw {
-	SpriteID image;
-	PaletteID pal;
-	const SubSprite *sub;           ///< only draw a rectangular part of the sprite
-	int32_t x;                        ///< screen X coordinate of sprite
-	int32_t y;                        ///< screen Y coordinate of sprite
-};
-
-struct ChildScreenSpriteToDraw {
-	SpriteID image;
-	PaletteID pal;
-	const SubSprite *sub;           ///< only draw a rectangular part of the sprite
-	int32_t x;
-	int32_t y;
-	bool relative;
-	int next;                       ///< next child to draw (-1 at the end)
-};
-
-/** Enumeration of multi-part foundations */
-enum class FoundationPart : uint8_t {
-	None = 0xFF, ///< Neither foundation nor groundsprite drawn yet.
-	Normal = 0, ///< First part (normal foundation or no foundation)
-	Halftile = 1, ///< Second part (halftile foundation)
-	End, ///< End marker.
-};
-
-/**
- * Mode of "sprite combining"
- * @see StartSpriteCombine
- */
-enum class SpriteCombineMode : uint8_t {
-	None, ///< Every #AddSortableSpriteToDraw start its own bounding box
-	Pending, ///< %Sprite combining will start with the next unclipped sprite.
-	Active, ///< %Sprite combining is active. #AddSortableSpriteToDraw outputs child sprites.
-};
-
-typedef std::vector<TileSpriteToDraw> TileSpriteToDrawVector;
-typedef std::vector<StringSpriteToDraw> StringSpriteToDrawVector;
-typedef std::vector<ParentSpriteToDraw> ParentSpriteToDrawVector;
-typedef std::vector<ChildScreenSpriteToDraw> ChildScreenSpriteToDrawVector;
-
-constexpr int LAST_CHILD_NONE = -1; ///< There is no last_child to fill.
-constexpr int LAST_CHILD_PARENT = -2; ///< Fill last_child of the most recent parent sprite.
-
-/** Data structure storing rendering information */
-struct ViewportDrawer {
-	DrawPixelInfo dpi;
-
-	CameraParams camera; ///< Perspective camera for this frame (3D mode).
-
-	StringSpriteToDrawVector string_sprites_to_draw;
-	TileSpriteToDrawVector tile_sprites_to_draw;
-	ParentSpriteToDrawVector parent_sprites_to_draw;
-	ParentSpriteToSortVector parent_sprites_to_sort; ///< Parent sprite pointer array used for sorting
-	ChildScreenSpriteToDrawVector child_screen_sprites_to_draw;
-
-	int last_child;
-
-	SpriteCombineMode combine_sprites; ///< Current mode of "sprite combining". @see StartSpriteCombine
-
-	FoundationPart foundation_part; ///< Currently active foundation for ground sprite drawing.
-	EnumIndexArray<int, FoundationPart, FoundationPart::End> foundation; ///< Foundation sprites (index into parent_sprites_to_draw).
-	EnumIndexArray<int, FoundationPart, FoundationPart::End> last_foundation_child; ///< Tail of ChildSprite list of the foundations. (index into child_screen_sprites_to_draw)
-	EnumIndexArray<Point, FoundationPart, FoundationPart::End> foundation_offset; ///< Pixel offset for ground sprites on the foundations.
-};
 
 static bool MarkViewportDirty(const Viewport &vp, int left, int top, int right, int bottom);
 
-static ViewportDrawer _vd;
+ViewportDrawer _vd;
 
 TileHighlightData _thd;
 static TileInfo _cur_ti;
@@ -1885,8 +1812,11 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	AutoRestoreBackup dpi_backup(_cur_dpi, &_vd.dpi);
 
 	/* Stage-3 orbit camera: render the viewport with the GL renderer and skip
-	 * the software pipeline entirely. */
+	 * the software pipeline entirely. The landscape/vehicle collection still
+	 * runs so the renderer can draw the objects as billboards. */
 	if (_settings_client.gui.three_d_camera == 2) {
+		ViewportAddLandscape();
+		ViewportAddVehicles(&_vd.dpi);
 		RenderViewport3D(vp, _vd.dpi);
 		return;
 	}

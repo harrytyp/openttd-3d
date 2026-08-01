@@ -12,14 +12,19 @@
 #include "landscape.h"
 #include "map_func.h"
 #include "map_type.h"
-#include "settings_type.h"
-#include "tile_map.h"
 #include "landscape_type.h"
 #include "clear_map.h"
+#include "settings_type.h"
+#include "tile_map.h"
 #include "viewport_type.h"
+#include "viewport_drawer.h"
 #include "window_type.h"
 #include "zoom_func.h"
 #include "spritecache.h"
+#include "sprite.h"
+#include "blitter/32bpp_sse2.hpp"
+
+#include <unordered_map>
 
 #include <GL/glcorearb.h>
 #include <GL/glext.h>
@@ -74,6 +79,7 @@ GL_FUNC(glTexParameteri, PFNGLTEXPARAMETERIPROC)
 GL_FUNC(glActiveTexture, PFNGLACTIVETEXTUREPROC)
 GL_FUNC(glUniform1i, PFNGLUNIFORM1IPROC)
 GL_FUNC(glBlendFunc, PFNGLBLENDFUNCPROC)
+GL_FUNC(glPixelStorei, PFNGLPIXELSTOREIPROC)
 #undef GL_FUNC
 
 static bool _gl_loaded = false;
@@ -94,7 +100,7 @@ static bool LoadGL()
 	GL_FUNC(glViewport) GL_FUNC(glClear) GL_FUNC(glClearColor) GL_FUNC(glEnable) GL_FUNC(glDisable)
 	GL_FUNC(glDrawArrays) GL_FUNC(glReadPixels) GL_FUNC(glDeleteShader) GL_FUNC(glDeleteProgram)
 	GL_FUNC(glGenTextures) GL_FUNC(glBindTexture) GL_FUNC(glTexImage2D) GL_FUNC(glTexParameteri) GL_FUNC(glActiveTexture) GL_FUNC(glUniform1i)
-	GL_FUNC(glBlendFunc)
+	GL_FUNC(glBlendFunc) GL_FUNC(glPixelStorei)
 #undef GL_FUNC
 	_gl_ok = true;
 	return true;
@@ -104,6 +110,9 @@ static bool LoadGL()
 
 static GLuint _program = 0;
 static GLint _u_mvp = -1;
+static GLuint _bill_program = 0;
+static GLint _u_mvp_bill = -1;
+static GLint _u_tex_bill = -1;
 
 static bool CompileShader()
 {
@@ -155,7 +164,76 @@ static bool CompileShader()
 	p_glDeleteShader(vs);
 	p_glDeleteShader(fs);
 	_u_mvp = p_glGetUniformLocation(_program, "u_mvp");
+
+	/* Billboard shader: textured quads (camera-facing sprites). */
+	const char *bvs_src =
+		"#version 330 core\n"
+		"layout(location = 0) in vec3 a_pos;\n"
+		"layout(location = 1) in vec2 a_uv;\n"
+		"uniform mat4 u_mvp;\n"
+		"out vec2 v_uv;\n"
+		"void main() { gl_Position = u_mvp * vec4(a_pos, 1.0); v_uv = a_uv; }\n";
+	const char *bfs_src =
+		"#version 330 core\n"
+		"in vec2 v_uv;\n"
+		"uniform sampler2D u_tex;\n"
+		"out vec4 frag;\n"
+		"void main() { vec4 t = texture(u_tex, v_uv); if (t.a < 0.5) discard; frag = vec4(t.rgb, 1.0); }\n";
+	GLuint bvs = p_glCreateShader(GL_VERTEX_SHADER);
+	p_glShaderSource(bvs, 1, &bvs_src, nullptr);
+	p_glCompileShader(bvs);
+	p_glGetShaderiv(bvs, GL_COMPILE_STATUS, &ok);
+	if (!ok) return false;
+	GLuint bfs = p_glCreateShader(GL_FRAGMENT_SHADER);
+	p_glShaderSource(bfs, 1, &bfs_src, nullptr);
+	p_glCompileShader(bfs);
+	p_glGetShaderiv(bfs, GL_COMPILE_STATUS, &ok);
+	if (!ok) return false;
+	_bill_program = p_glCreateProgram();
+	p_glAttachShader(_bill_program, bvs);
+	p_glAttachShader(_bill_program, bfs);
+	p_glLinkProgram(_bill_program);
+	p_glGetProgramiv(_bill_program, GL_LINK_STATUS, &ok);
+	if (!ok) return false;
+	p_glDeleteShader(bvs);
+	p_glDeleteShader(bfs);
+	_u_mvp_bill = p_glGetUniformLocation(_bill_program, "u_mvp");
+	_u_tex_bill = p_glGetUniformLocation(_bill_program, "u_tex");
 	return true;
+}
+
+/** Cache of uploaded sprite textures, keyed by sprite id. */
+static std::unordered_map<SpriteID, GLuint> _sprite_textures;
+
+/**
+ * Upload (and cache) a sprite as a GL texture, using the RGBA mip-map data
+ * of the current zoom level from the active SSE blitter.
+ */
+static GLuint GetSpriteTexture(SpriteID sprite, ZoomLevel zoom)
+{
+	const auto it = _sprite_textures.find(sprite);
+	if (it != _sprite_textures.end()) return it->second;
+
+	const Sprite *spr = GetSprite(sprite, SpriteType::Normal);
+	if (spr == nullptr || spr->width == 0 || spr->height == 0) return 0;
+	const auto *sd = reinterpret_cast<const Blitter_32bppSSE_Base::SpriteData *>(spr->data);
+	const auto &si = sd->infos[zoom];
+	const int tw = si.sprite_width;
+	const int th = UnScaleByZoom(spr->height, zoom);
+	if (tw <= 0 || th <= 0) return 0;
+
+	GLuint tex = 0;
+	p_glGenTextures(1, &tex);
+	p_glBindTexture(GL_TEXTURE_2D, tex);
+	p_glPixelStorei(GL_UNPACK_ROW_LENGTH, si.sprite_line_size / 4);
+	p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_BGRA, GL_UNSIGNED_BYTE, sd->data + si.sprite_offset);
+	p_glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	_sprite_textures.emplace(sprite, tex);
+	return tex;
 }
 
 /* --- Ground colours --- */
@@ -185,6 +263,7 @@ static Vec3 GroundColor(TileIndex tile)
 /* --- Mesh buffer --- */
 
 static GLuint _vao = 0, _vbo = 0;
+static GLuint _bill_vao = 0, _bill_vbo = 0;
 static std::vector<float> _mesh_data;
 
 /**
@@ -201,6 +280,7 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	const int width = UnScaleByZoom(dpi.width, dpi.zoom);
 	const int height = UnScaleByZoom(dpi.height, dpi.zoom);
 	if (width <= 0 || height <= 0) return;
+	const ZoomLevel zoom = dpi.zoom;
 
 	/* --- Camera: target = tile under the viewport centre --- */
 	Point centre = InverseRemapCoords(vp.virtual_left + vp.virtual_width / 2, vp.virtual_top + vp.virtual_height / 2);
@@ -276,6 +356,77 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	p_glUseProgram(_program);
 	p_glUniformMatrix4fv(_u_mvp, 1, GL_FALSE, mvp.m);
 	p_glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(_mesh_data.size() / 6));
+
+	/* --- Billboards: camera-facing quads for the collected parent sprites --- */
+	p_glUseProgram(_bill_program);
+	p_glUniformMatrix4fv(_u_mvp_bill, 1, GL_FALSE, mvp.m);
+	p_glActiveTexture(GL_TEXTURE0);
+	p_glUniform1i(_u_tex_bill, 0);
+
+	if (_bill_vao == 0) {
+		p_glGenVertexArrays(1, &_bill_vao);
+		p_glGenBuffers(1, &_bill_vbo);
+	}
+	p_glBindVertexArray(_bill_vao);
+	p_glBindBuffer(GL_ARRAY_BUFFER, _bill_vbo);
+
+	std::vector<float> bill_data;
+	std::vector<std::pair<GLuint, int>> bill_groups;
+	if (!_vd.parent_sprites_to_draw.empty()) {
+		/* Horizontal camera direction (normalised). */
+		Vec3 fwd = cam.target - cam.Eye();
+		fwd.z = 0;
+		const float fl = std::sqrt(fwd.x * fwd.x + fwd.y * fwd.y);
+		if (fl > 1e-6f) {
+			fwd.x /= fl;
+			fwd.y /= fl;
+		}
+		const Vec3 right = { -fwd.y, fwd.x, 0 };
+
+		for (const ParentSpriteToDraw &ps : _vd.parent_sprites_to_draw) {
+			const SpriteID real = ps.image & SPRITE_MASK;
+			const Sprite *spr = GetSprite(real, SpriteType::Normal);
+			if (spr == nullptr || spr->width == 0 || spr->height == 0) continue;
+			const GLuint tex = GetSpriteTexture(real, zoom);
+			if (tex == 0) continue;
+			/* Sprite pixel -> world: 0.5 world units per pixel (tile = 16
+			 * world units = 32 screen pixels in the legacy projection). */
+			const float hw = spr->width * 0.25f;  /* half world width */
+			const float h = spr->height * 0.5f;   /* world height */
+			const float bx = static_cast<float>(ps.xmin + ps.xmax) * 0.5f;
+			const float by = static_cast<float>(ps.ymin + ps.ymax) * 0.5f;
+			const float bz = static_cast<float>(ps.zmin);
+			const float blx = bx - right.x * hw;
+			const float bly = by - right.y * hw;
+			const float brx = bx + right.x * hw;
+			const float bry = by + right.y * hw;
+			const float tz = bz + h;
+			/* Bottom edge v=1, top edge v=0 (the texture is uploaded with the
+			 * first sprite row — the top — as the bottom texture row). */
+			const float v[6][5] = {
+				{ blx, bly, bz, 0.0f, 1.0f },
+				{ brx, bry, bz, 1.0f, 1.0f },
+				{ brx, bry, tz, 1.0f, 0.0f },
+				{ blx, bly, bz, 0.0f, 1.0f },
+				{ brx, bry, tz, 1.0f, 0.0f },
+				{ blx, bly, tz, 0.0f, 0.0f },
+			};
+			bill_groups.emplace_back(tex, static_cast<int>(bill_data.size() / 5));
+			bill_data.insert(bill_data.end(), &v[0][0], &v[0][0] + 30);
+		}
+	}
+
+	if (!bill_data.empty()) {
+		p_glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bill_data.size() * sizeof(float)), bill_data.data(), GL_DYNAMIC_DRAW);
+		p_glEnableVertexAttribArray(0);
+		p_glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), nullptr);
+		p_glEnableVertexAttribArray(1);
+		p_glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void *>(3 * sizeof(float)));
+		for (const auto &g : bill_groups) {
+			p_glBindTexture(GL_TEXTURE_2D, g.first);
+			p_glDrawArrays(GL_TRIANGLES, g.second, 6);
+		}
+	}
 
 	/* --- Read back into the software screen buffer (y flipped) --- */
 	std::vector<uint8_t> tmp(static_cast<size_t>(width) * height * 4);
