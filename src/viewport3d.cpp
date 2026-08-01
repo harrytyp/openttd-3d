@@ -297,8 +297,11 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	if (!LoadGL()) return;
 	if (!CompileShader()) return;
 
-	const int width = UnScaleByZoom(dpi.width, dpi.zoom);
-	const int height = UnScaleByZoom(dpi.height, dpi.zoom);
+	/* The world-screenshot dpi already carries unscaled dimensions (and the
+	 * WorldScreenshot zoom level is negative), so only unscale the regular
+	 * frame dpi. */
+	const int width = dpi.zoom == ZoomLevel::WorldScreenshot ? dpi.width : UnScaleByZoom(dpi.width, dpi.zoom);
+	const int height = dpi.zoom == ZoomLevel::WorldScreenshot ? dpi.height : UnScaleByZoom(dpi.height, dpi.zoom);
 	if (width <= 0 || height <= 0) return;
 	const ZoomLevel zoom = dpi.zoom;
 
@@ -343,6 +346,33 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 				_mesh_data.push_back(col.y);
 				_mesh_data.push_back(col.z);
 			}
+			/* Cliff walls: when two corners of an edge differ in height, the
+			 * open side face lets the sky show through between the tiles.
+			 * Close it with a vertical quad (drawn darker, like a shadow
+			 * face). Edges: (N,E), (E,S), (S,W), (W,N). */
+			const int edges[4][2] = { { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 } };
+			const Vec3 wall_col = col * 0.62f;
+			for (const auto &e : edges) {
+				const Vec3 &a = verts[e[0]];
+				const Vec3 &b = verts[e[1]];
+				if (std::abs(a.z - b.z) < 0.5f) continue;
+				/* Vertical side face between the two corners: base edge at
+				 * the lower height, top edge at the higher one. */
+				const Vec3 &low = a.z <= b.z ? a : b;
+				const Vec3 &high = a.z <= b.z ? b : a;
+				const Vec3 high_base = { high.x, high.y, low.z };
+				const Vec3 low_vert = { low.x, low.y, high.z };
+				const float vq[6][6] = {
+					{ low.x, low.y, low.z, wall_col.x, wall_col.y, wall_col.z },
+					{ high_base.x, high_base.y, high_base.z, wall_col.x, wall_col.y, wall_col.z },
+					{ high.x, high.y, high.z, wall_col.x, wall_col.y, wall_col.z },
+					{ low.x, low.y, low.z, wall_col.x, wall_col.y, wall_col.z },
+					{ high.x, high.y, high.z, wall_col.x, wall_col.y, wall_col.z },
+					{ low_vert.x, low_vert.y, low_vert.z, wall_col.x, wall_col.y, wall_col.z },
+				};
+				_mesh_data.insert(_mesh_data.end(), &vq[0][0], &vq[0][0] + 36);
+			}
+
 		}
 	}
 	if (_mesh_data.empty()) return;
@@ -568,3 +598,4 @@ bool PickTile3D(const Viewport &vp, int x, int y, TileIndex &tile)
 	}
 	return false;
 }
+
