@@ -1753,16 +1753,23 @@ static void ViewportSortParentSprites(ParentSpriteToSortVector *psdv)
 static void ViewportDrawParentSprites(const ParentSpriteToSortVector *psd, const ChildScreenSpriteToDrawVector *csstdv)
 {
 	for (const ParentSpriteToDraw *ps : *psd) {
-		if (ps->image != SPR_EMPTY_BOUNDING_BOX) DrawSpriteViewport(ps->image, ps->pal, ps->x, ps->y, ps->sub);
+		/* 3D depth scaling: shrink sprites in the distance (discrete zoom steps). */
+		int zoom_scale = 0;
+		if (_settings_client.gui.three_d_mode && _settings_client.gui.three_d_scale) {
+			const Point iso = CameraUnproject(_vd.camera, { ps->x, ps->y });
+			zoom_scale = ZoomScaleForDepth(_vd.camera, iso.y);
+		}
+
+		if (ps->image != SPR_EMPTY_BOUNDING_BOX) DrawSpriteViewport(ps->image, ps->pal, ps->x, ps->y, ps->sub, zoom_scale);
 
 		int child_idx = ps->first_child;
 		while (child_idx >= 0) {
 			const ChildScreenSpriteToDraw *cs = &(*csstdv)[child_idx];
 			child_idx = cs->next;
 			if (cs->relative) {
-				DrawSpriteViewport(cs->image, cs->pal, ps->left + cs->x, ps->top + cs->y, cs->sub);
+				DrawSpriteViewport(cs->image, cs->pal, ps->left + cs->x, ps->top + cs->y, cs->sub, zoom_scale);
 			} else {
-				DrawSpriteViewport(cs->image, cs->pal, ps->x + cs->x, ps->y + cs->y, cs->sub);
+				DrawSpriteViewport(cs->image, cs->pal, ps->x + cs->x, ps->y + cs->y, cs->sub, zoom_scale);
 			}
 		}
 	}

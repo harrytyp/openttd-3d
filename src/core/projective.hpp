@@ -101,4 +101,32 @@ inline Point CameraUnproject(const CameraParams &c, Point s)
 	return { static_cast<int>(px), static_cast<int>(py) };
 }
 
+/**
+ * Discrete depth-scaling for sprites: how much to shrink a sprite at the
+ * given isometric depth, expressed as a zoom-level offset (0 = full size,
+ * 1 = half size, 2 = quarter size).
+ *
+ * The perspective projection scales objects by (focal + iso_y - focus_y) / focal.
+ * We normalise this against the viewport centre (where the scale is 1 by
+ * construction of the projection) and shrink objects that are smaller than
+ * the centre scale. Objects closer than the centre cannot be enlarged with
+ * the discrete zoom steps, so they keep full size.
+ *
+ * @param c Camera parameters (must be enabled).
+ * @param iso_y Isometric (unprojected) y of the sprite anchor.
+ * @return 0, 1 or 2.
+ */
+inline int ZoomScaleForDepth(const CameraParams &c, int iso_y)
+{
+	if (!c.enabled) return 0;
+
+	const int64_t denom = static_cast<int64_t>(c.focal) + c.center_y - c.focus_y;
+	if (denom <= 0) return 2;
+
+	const int64_t rel = (static_cast<int64_t>(c.focal) + iso_y - c.focus_y) * 100 / denom;
+	if (rel >= 55) return 0;
+	if (rel >= 25) return 1;
+	return 2;
+}
+
 #endif /* PROJECTIVE_HPP */

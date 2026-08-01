@@ -77,3 +77,29 @@ TEST_CASE("Projective - strength changes focal length")
 	const CameraParams strong = MakeCameraParams(true, 100, 0, 0, 640, 480);
 	CHECK(weak.focal > strong.focal);
 }
+
+TEST_CASE("Projective - depth scaling steps")
+{
+	const CameraParams c = MakeCameraParams(true, 50, 0, 0, 640, 480);
+	REQUIRE(c.enabled);
+
+	/* At the viewport centre the relative scale is 1 -> full size. */
+	CHECK(ZoomScaleForDepth(c, c.center_y) == 0);
+	/* Closer than the centre (relative scale > 1) -> full size (cannot enlarge). */
+	CHECK(ZoomScaleForDepth(c, c.center_y + c.focal / 8) == 0);
+	/* Further away (relative scale < 0.75) -> half size. */
+	CHECK(ZoomScaleForDepth(c, c.center_y - c.focal / 2) == 1);
+	/* Far away (relative scale < 0.25) -> quarter size. */
+	CHECK(ZoomScaleForDepth(c, c.center_y - 2 * c.focal) == 2);
+	/* The horizon (iso_y == focus_y) has relative scale 1 -> full size. */
+	CHECK(ZoomScaleForDepth(c, c.focus_y) == 0);
+	/* Behind the camera -> quarter size. */
+	CHECK(ZoomScaleForDepth(c, c.focus_y - c.focal) == 2);
+	/* Relative scale 0.3 -> half size. */
+	CHECK(ZoomScaleForDepth(c, c.focus_y + 30 * (c.focal + c.center_y - c.focus_y) / 100 - c.focal) == 1);
+
+	/* Disabled camera never scales. */
+	const CameraParams off = MakeCameraParams(false, 50, 0, 0, 640, 480);
+	CHECK(ZoomScaleForDepth(off, 0) == 0);
+	CHECK(ZoomScaleForDepth(off, 100000) == 0);
+}

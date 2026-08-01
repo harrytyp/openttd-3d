@@ -216,6 +216,7 @@ enum class ViewportAutoscrolling : uint8_t {
 /** Settings related to the GUI and other stuff that is not saved in the savegame. */
 struct GUISettings {
 	bool three_d_mode; ///< 3D perspective camera for the main viewport (experimental)
+	bool three_d_scale; ///< 3D depth scaling of distant sprites (experimental)
 	uint8_t three_d_strength; ///< 3D perspective strength 0..100 (experimental)
 	bool sg_full_load_any; ///< new full load calculation, any cargo must be full read from pre v93 savegames
 	bool lost_vehicle_warn; ///< if a vehicle can't find its destination, show a warning
