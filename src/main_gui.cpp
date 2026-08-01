@@ -435,6 +435,15 @@ struct MainWindow : Window
 
 	void OnScroll(Point delta) override
 	{
+		if (_settings_client.gui.three_d_camera == 2) {
+			/* Orbit camera: dragging rotates (yaw) and tilts (pitch); the
+			 * target stays fixed (pan still works via the normal scroll
+			 * paths, which move the viewport centre). */
+			_settings_client.gui.three_d_yaw = (static_cast<int>(_settings_client.gui.three_d_yaw) + delta.x / 2 + 360) % 360;
+			_settings_client.gui.three_d_pitch = Clamp<uint8_t>(_settings_client.gui.three_d_pitch + delta.y / 2, 0, 100);
+			MarkWholeScreenDirty();
+			return;
+		}
 		this->viewport->scrollpos_x += ScaleByZoom(delta.x, this->viewport->zoom);
 		this->viewport->scrollpos_y += ScaleByZoom(delta.y, this->viewport->zoom);
 		this->viewport->dest_scrollpos_x = this->viewport->scrollpos_x;
@@ -445,6 +454,13 @@ struct MainWindow : Window
 	void OnMouseWheel(int wheel, WidgetID widget) override
 	{
 		if (widget != WID_M_VIEWPORT) return;
+		if (_settings_client.gui.three_d_camera == 2) {
+			/* Orbit camera: the wheel zooms the camera distance. */
+			int dist = _settings_client.gui.three_d_distance + (wheel > 0 ? 300 : -300);
+			_settings_client.gui.three_d_distance = Clamp<uint16_t>(dist, 1000, 30000);
+			MarkWholeScreenDirty();
+			return;
+		}
 		if (_settings_client.gui.scrollwheel_scrolling != ScrollWheelScrolling::Off) {
 			bool in = wheel < 0;
 

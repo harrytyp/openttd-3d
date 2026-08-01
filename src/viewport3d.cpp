@@ -286,7 +286,7 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	Point centre = InverseRemapCoords(vp.virtual_left + vp.virtual_width / 2, vp.virtual_top + vp.virtual_height / 2);
 	Camera3D cam;
 	cam.target = { static_cast<float>(centre.x), static_cast<float>(centre.y), static_cast<float>(TileHeight(TileXY(Clamp(centre.x / TILE_WORLD, 0, Map::SizeX() - 1), Clamp(centre.y / TILE_WORLD, 0, Map::SizeY() - 1))) * HEIGHT_WORLD) };
-	cam.distance = 3200.0f;
+	cam.distance = static_cast<float>(_settings_client.gui.three_d_distance);
 	cam.yaw = static_cast<float>(_settings_client.gui.three_d_yaw);
 	cam.pitch = 5.0f + _settings_client.gui.three_d_pitch * 0.5f;
 	cam.aspect = static_cast<float>(width) / static_cast<float>(height);
