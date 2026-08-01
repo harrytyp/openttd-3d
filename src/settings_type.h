@@ -219,6 +219,7 @@ struct GUISettings {
 	bool three_d_scale; ///< 3D depth scaling of distant sprites (experimental)
 	uint8_t three_d_strength; ///< 3D perspective strength 0..100 (experimental)
 	uint8_t three_d_pitch; ///< 3D camera pitch 0..100 (experimental): 0 = steep, 50 = default, 100 = flat
+	uint8_t three_d_camera; ///< 3D camera mode (experimental): 0 = off, 1 = tilted (mode-7), 2 = orbit (true 3D)
 	bool sg_full_load_any; ///< new full load calculation, any cargo must be full read from pre v93 savegames
 	bool lost_vehicle_warn; ///< if a vehicle can't find its destination, show a warning
 	OrderReviewSystem order_review_system; ///< perform order reviews on vehicles

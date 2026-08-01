@@ -65,6 +65,7 @@
 #include "landscape.h"
 #include "core/projective.hpp"
 #include "viewport_func.h"
+#include "viewport3d.h"
 #include "station_base.h"
 #include "waypoint_base.h"
 #include "town.h"
@@ -1882,6 +1883,13 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 
 	_vd.dpi.dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_cur_dpi->dst_ptr, x - _cur_dpi->left, y - _cur_dpi->top);
 	AutoRestoreBackup dpi_backup(_cur_dpi, &_vd.dpi);
+
+	/* Stage-3 orbit camera: render the viewport with the GL renderer and skip
+	 * the software pipeline entirely. */
+	if (_settings_client.gui.three_d_camera == 2) {
+		RenderViewport3D(vp, _vd.dpi);
+		return;
+	}
 
 	ViewportAddLandscape();
 	ViewportAddVehicles(&_vd.dpi);
