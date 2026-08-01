@@ -1892,6 +1892,30 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 
 	if (!_vd.tile_sprites_to_draw.empty()) ViewportDrawTileSprites(&_vd.tile_sprites_to_draw);
 
+	/* 3D mode: fill the area above the horizon with a sky colour so the
+	 * camera pitch is visible. The map ends at the minimum of the projection
+	 * parabola; the ground tiles there are clamped map-edge tiles. */
+	if (_settings_client.gui.three_d_mode) {
+		const CameraParams &c = _vd.camera;
+		const int64_t iso_sky = (static_cast<int64_t>(c.focus_y) + c.center_y - c.focal) / 2;
+		const int64_t proj_sky = c.center_y + (iso_sky - c.center_y) * (c.focal + iso_sky - c.focus_y) / c.focal;
+		const int sky_px = UnScaleByZoom(static_cast<int>(proj_sky - _vd.dpi.top), _vd.dpi.zoom);
+		if (sky_px > 0) {
+			/* GfxFillRect only works at ZoomLevel::Min with absolute
+			 * coordinates, so draw into a temporary unzoomed dpi. */
+			DrawPixelInfo sky_dpi;
+			sky_dpi.zoom = ZoomLevel::Min;
+			sky_dpi.left = 0;
+			sky_dpi.top = 0;
+			sky_dpi.width = UnScaleByZoom(_vd.dpi.width, _vd.dpi.zoom);
+			sky_dpi.height = sky_px;
+			sky_dpi.dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_vd.dpi.dst_ptr, 0, 0);
+			sky_dpi.pitch = _vd.dpi.pitch;
+			AutoRestoreBackup sky_dpi_backup(_cur_dpi, &sky_dpi);
+			GfxFillRect(0, 0, sky_dpi.width - 1, sky_dpi.height - 1, PC_LIGHT_BLUE);
+		}
+	}
+
 	for (auto &psd : _vd.parent_sprites_to_draw) {
 		_vd.parent_sprites_to_sort.push_back(&psd);
 	}
