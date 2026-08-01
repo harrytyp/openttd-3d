@@ -78,6 +78,25 @@ TEST_CASE("Projective - strength changes focal length")
 	CHECK(weak.focal > strong.focal);
 }
 
+TEST_CASE("Projective - pitch moves the horizon")
+{
+	const CameraParams def = MakeCameraParams(true, 50, 0, 0, 640, 480);
+	const CameraParams steep = MakeCameraParams(true, 50, 0, 0, 640, 480, 0);
+	const CameraParams flat = MakeCameraParams(true, 50, 0, 0, 640, 480, 100);
+
+	/* Default pitch keeps the historic horizon at 40% of the height. */
+	CHECK(def.focus_y == 0 + 480 * 2 / 5);
+	/* Steep: horizon higher up. */
+	CHECK(steep.focus_y < def.focus_y);
+	/* Flat: horizon closer to (or at) the centre. */
+	CHECK(flat.focus_y > def.focus_y);
+	CHECK(flat.focus_y <= def.center_y);
+	/* Pitch does not affect the focal length or centre. */
+	CHECK(steep.focal == def.focal);
+	CHECK(steep.center_x == def.center_x);
+	CHECK(steep.center_y == def.center_y);
+}
+
 TEST_CASE("Projective - depth scaling steps")
 {
 	const CameraParams c = MakeCameraParams(true, 50, 0, 0, 640, 480);

@@ -205,7 +205,7 @@ static Point MapXYZToViewport(const Viewport &vp, int x, int y, int z)
 	Point p = RemapCoords(x, y, z);
 	if (_settings_client.gui.three_d_mode) {
 		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
-			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 		p = CameraProject(c, p);
 	}
 	p.x -= vp.virtual_width / 2;
@@ -383,6 +383,15 @@ static void SetViewportPosition(Window *w, int x, int y)
 
 	if (old_top == 0 && old_left == 0) return;
 
+	if (_settings_client.gui.three_d_mode) {
+		/* The perspective projection depends on the scroll position: the
+		 * buffer-shift optimisation would leave stale, mis-projected pixels.
+		 * Redraw the whole viewport instead. */
+		MarkViewportDirty(vp, vp.virtual_left, vp.virtual_top,
+				vp.virtual_left + vp.virtual_width, vp.virtual_top + vp.virtual_height);
+		return;
+	}
+
 	_vp_move_offs.x = old_left;
 	_vp_move_offs.y = old_top;
 
@@ -459,7 +468,7 @@ Point TranslateXYToTileCoord(const Viewport &vp, int x, int y, bool clamp_to_map
 	};
 	if (_settings_client.gui.three_d_mode) {
 		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
-			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 		pt = CameraUnproject(c, pt);
 	}
 
@@ -1856,7 +1865,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 {
 	_vd.dpi.zoom = vp.zoom;
 	_vd.camera = MakeCameraParams(_settings_client.gui.three_d_mode, _settings_client.gui.three_d_strength,
-		vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+		vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 	int mask = ScaleByZoom(-1, vp.zoom);
 
 	_vd.combine_sprites = SpriteCombineMode::None;
@@ -1981,7 +1990,7 @@ static inline void ClampViewportToMap(const Viewport &vp, int *scroll_x, int *sc
 
 	if (_settings_client.gui.three_d_mode) {
 		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
-			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 		pt = CameraUnproject(c, pt);
 	}
 
@@ -2040,6 +2049,24 @@ static void ClampSmoothScroll(uint32_t delta_ms, int64_t delta_hi, int64_t delta
 void UpdateViewportPosition(Window *w, uint32_t delta_ms)
 {
 	ViewportData &vp = *w->viewport;
+
+	/* 3D camera settings changed (e.g. via console): force a full redraw.
+	 * The perspective parameters affect every pixel, so partial updates
+	 * would leave stale, mis-projected content. */
+	static bool last_3d_mode = _settings_client.gui.three_d_mode;
+	static bool last_3d_scale = _settings_client.gui.three_d_scale;
+	static uint8_t last_3d_strength = _settings_client.gui.three_d_strength;
+	static uint8_t last_3d_pitch = _settings_client.gui.three_d_pitch;
+	if (last_3d_mode != _settings_client.gui.three_d_mode ||
+			last_3d_scale != _settings_client.gui.three_d_scale ||
+			last_3d_strength != _settings_client.gui.three_d_strength ||
+			last_3d_pitch != _settings_client.gui.three_d_pitch) {
+		last_3d_mode = _settings_client.gui.three_d_mode;
+		last_3d_scale = _settings_client.gui.three_d_scale;
+		last_3d_strength = _settings_client.gui.three_d_strength;
+		last_3d_pitch = _settings_client.gui.three_d_pitch;
+		MarkWholeScreenDirty();
+	}
 
 	if (vp.follow_vehicle != VehicleID::Invalid()) {
 		const Vehicle *veh = Vehicle::Get(vp.follow_vehicle)->GetMovingFront();
@@ -2106,6 +2133,16 @@ void UpdateViewportPosition(Window *w, uint32_t delta_ms)
  */
 static bool MarkViewportDirty(const Viewport &vp, int left, int top, int right, int bottom)
 {
+	if (_settings_client.gui.three_d_mode) {
+		/* The perspective projection makes the depth sorting depend on the
+		 * whole viewport: partial redraws would produce wrong overlaps.
+		 * Always redraw the complete viewport. */
+		left = vp.virtual_left;
+		top = vp.virtual_top;
+		right = vp.virtual_left + vp.virtual_width;
+		bottom = vp.virtual_top + vp.virtual_height;
+	}
+
 	/* Rounding wrt. zoom-out level */
 	right += (1 << to_underlying(vp.zoom)) - 1;
 	bottom += (1 << to_underlying(vp.zoom)) - 1;
@@ -3662,7 +3699,7 @@ Point GetViewportStationMiddle(const Viewport &vp, const Station *st)
 	Point p = RemapCoords(x, y, z);
 	if (_settings_client.gui.three_d_mode) {
 		const CameraParams c = MakeCameraParams(true, _settings_client.gui.three_d_strength,
-			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height);
+			vp.virtual_left, vp.virtual_top, vp.virtual_width, vp.virtual_height, _settings_client.gui.three_d_pitch);
 		p = CameraProject(c, p);
 	}
 	p.x = UnScaleByZoom(p.x - vp.virtual_left, vp.zoom) + vp.left;

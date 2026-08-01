@@ -30,8 +30,11 @@ struct CameraParams {
  * @param enabled Perspective on/off.
  * @param strength 0..100: 0 = almost orthographic, 100 = strong perspective.
  * @param vp_left, vp_top, vp_width, vp_height Viewport rectangle in virtual pixels.
+ * @param pitch 0..100: 0 = steep (horizon high up), 50 = default, 100 = flat
+ *        (horizon near the viewport centre). Beyond ~70 the ground sprites
+ *        visibly stretch; 100 puts the horizon at the centre line.
  */
-inline CameraParams MakeCameraParams(bool enabled, uint8_t strength, int vp_left, int vp_top, int vp_width, int vp_height)
+inline CameraParams MakeCameraParams(bool enabled, uint8_t strength, int vp_left, int vp_top, int vp_width, int vp_height, uint8_t pitch = 50)
 {
 	CameraParams c;
 	c.enabled = enabled;
@@ -41,11 +44,13 @@ inline CameraParams MakeCameraParams(bool enabled, uint8_t strength, int vp_left
 	c.focal = vp_height * (200 - std::min<uint8_t>(strength, 100)) / 100;
 	if (c.focal < vp_height / 2) c.focal = vp_height / 2;
 
-	/* Horizon line at 40% of the viewport height. */
-	c.focus_y = vp_top + vp_height * 2 / 5;
-
 	c.center_x = vp_left + vp_width / 2;
 	c.center_y = vp_top + vp_height / 2;
+
+	/* Horizon line: 40% of the viewport height at pitch 50 (historic default),
+	 * moving towards the centre (flat) or up (steep) with the pitch. */
+	const int pitch_off = (static_cast<int>(std::min<uint8_t>(pitch, 100)) - 50) * 2;
+	c.focus_y = c.center_y - vp_height * (100 - pitch_off) / 1000;
 	return c;
 }
 
