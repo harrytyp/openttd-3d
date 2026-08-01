@@ -23,6 +23,8 @@ struct CameraParams {
 	int focus_y = 0;         ///< Horizon line (y) in virtual pixels.
 	int center_x = 0;        ///< Projection center x in virtual pixels.
 	int center_y = 0;        ///< Projection center y in virtual pixels.
+	int iso_ref = 0;         ///< Isometric y of the bottom viewport edge (depth-scaling reference).
+	int pitch = 50;          ///< Camera pitch 0..100 (steep..flat).
 };
 
 /**
@@ -52,6 +54,7 @@ inline CameraParams MakeCameraParams(bool enabled, uint8_t strength, int vp_left
 	 * 350 (15%) at pitch 0, 0 (centre) at pitch 100. Piecewise linear so
 	 * the default stays exactly where it always was. */
 	int p = std::min<uint8_t>(pitch, 100);
+	c.pitch = p;
 	int dist_1000 = 100;
 	if (p <= 50) {
 		dist_1000 = 100 + (50 - p) * 5;
@@ -59,6 +62,15 @@ inline CameraParams MakeCameraParams(bool enabled, uint8_t strength, int vp_left
 		dist_1000 = 100 - (p - 50) * 2;
 	}
 	c.focus_y = c.center_y - vp_height * dist_1000 / 1000;
+
+	/* Isometric depth of the bottom viewport edge (the nearest visible
+	 * point): depth-scaling reference. Solve the projection equation
+	 *   s.y = center_y + (py - center_y) * (focal + py - focus_y) / focal
+	 * for py with s.y = center_y + vp_height / 2, take the larger root. */
+	const int64_t b = c.focal - c.focus_y - c.center_y;
+	const int64_t c_term = static_cast<int64_t>(c.center_y) * (c.focus_y - c.focal) - static_cast<int64_t>(c.focal) * (vp_height / 2);
+	const int64_t disc = b * b - 4 * c_term;
+	c.iso_ref = (disc > 0) ? static_cast<int>((-b + static_cast<int64_t>(std::sqrt(static_cast<double>(disc)))) / 2) : c.center_y;
 	return c;
 }
 
@@ -120,10 +132,11 @@ inline Point CameraUnproject(const CameraParams &c, Point s)
  * 1 = half size, 2 = quarter size).
  *
  * The perspective projection scales objects by (focal + iso_y - focus_y) / focal.
- * We normalise this against the viewport centre (where the scale is 1 by
- * construction of the projection) and shrink objects that are smaller than
- * the centre scale. Objects closer than the centre cannot be enlarged with
- * the discrete zoom steps, so they keep full size.
+ * We normalise this against the nearest visible point (the bottom edge of
+ * the viewport, #CameraParams::iso_ref) and pick the discrete zoom step
+ * closest to the continuous scale. The step thresholds get more aggressive
+ * with a flatter pitch, so distant sprites shrink visibly when the camera
+ * is tilted down.
  *
  * @param c Camera parameters (must be enabled).
  * @param iso_y Isometric (unprojected) y of the sprite anchor.
@@ -133,12 +146,16 @@ inline int ZoomScaleForDepth(const CameraParams &c, int iso_y)
 {
 	if (!c.enabled) return 0;
 
-	const int64_t denom = static_cast<int64_t>(c.focal) + c.center_y - c.focus_y;
+	const int64_t denom = static_cast<int64_t>(c.focal) + c.iso_ref - c.focus_y;
 	if (denom <= 0) return 2;
 
 	const int64_t rel = (static_cast<int64_t>(c.focal) + iso_y - c.focus_y) * 100 / denom;
-	if (rel >= 55) return 0;
-	if (rel >= 25) return 1;
+	/* Midpoints between the discrete steps (100/50/25%), shifted by pitch:
+	 * flatter camera -> shrink more aggressively in the distance. */
+	const int t1 = 75 + (c.pitch - 50) / 5;
+	const int t2 = 37 + (c.pitch - 50) / 5;
+	if (rel >= t1) return 0;
+	if (rel >= t2) return 1;
 	return 2;
 }
 
