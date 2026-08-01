@@ -335,7 +335,7 @@ if(NOT OPTION_DEDICATED)
         # SDL2 dynamically loads OpenGL if needed, so do not link to OpenGL when
         # on Linux. For Windows, we need to link to OpenGL as we also have a win32
         # driver using it.
-        add_definitions(-DWITH_OPENGL)
+        add_definitions(-DWITH_OPENGL -DGL_ALLOW_SOFTWARE_RENDERER)
         message(STATUS "OpenGL found -- -DWITH_OPENGL -- (via SDL2)")
     else()
         link_package(OpenGL TARGET OpenGL::GL)
