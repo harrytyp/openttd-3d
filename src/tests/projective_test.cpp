@@ -105,16 +105,15 @@ TEST_CASE("Projective - depth scaling steps")
 	/* Reference: the bottom viewport edge is the nearest visible point. */
 	CHECK(ZoomScaleForDepth(c, c.iso_ref) == 0);
 	CHECK(ZoomScaleForDepth(c, c.iso_ref + 1000) == 0);
-	/* Centre (rel ~81%) and horizon (rel ~76%) are below the 85% threshold
-	 * -> half size, making the depth effect clearly visible. */
+	/* Centre (rel ~81%) and horizon (rel ~76%) -> half size. */
 	CHECK(ZoomScaleForDepth(c, c.center_y) == 1);
 	CHECK(ZoomScaleForDepth(c, c.focus_y) == 1);
-	/* Relative scale ~0.6 -> half size. */
-	CHECK(ZoomScaleForDepth(c, c.focus_y + 60 * (c.focal + c.iso_ref - c.focus_y) / 100 - c.focal) == 1);
-	/* Relative scale ~0.3 -> quarter size. */
-	CHECK(ZoomScaleForDepth(c, c.focus_y + 30 * (c.focal + c.iso_ref - c.focus_y) / 100 - c.focal) == 2);
-	/* Behind the camera -> quarter size. */
-	CHECK(ZoomScaleForDepth(c, c.focus_y - c.focal) == 2);
+	/* Relative scale ~0.6 -> quarter size. */
+	CHECK(ZoomScaleForDepth(c, c.focus_y + 60 * (c.focal + c.iso_ref - c.focus_y) / 100 - c.focal) == 2);
+	/* Relative scale ~0.3 -> eighth size. */
+	CHECK(ZoomScaleForDepth(c, c.focus_y + 30 * (c.focal + c.iso_ref - c.focus_y) / 100 - c.focal) == 3);
+	/* Behind the camera -> eighth size. */
+	CHECK(ZoomScaleForDepth(c, c.focus_y - c.focal) == 3);
 
 	/* Disabled camera never scales. */
 	const CameraParams off = MakeCameraParams(false, 50, 0, 0, 640, 480);
@@ -130,7 +129,7 @@ TEST_CASE("Projective - flatter pitch scales the distance more")
 
 	/* Same isometric depth: with a flat camera the same sprite shrinks
 	 * one step more than with the default pitch. */
-	const int iso_y = def.focus_y + 57 * (def.focal + def.iso_ref - def.focus_y) / 100 - def.focal;
+	const int iso_y = def.focus_y + 75 * (def.focal + def.iso_ref - def.focus_y) / 100 - def.focal;
 	CHECK(ZoomScaleForDepth(def, iso_y) == 1);
 	CHECK(ZoomScaleForDepth(flat, iso_y) == 2);
 }

@@ -129,35 +129,37 @@ inline Point CameraUnproject(const CameraParams &c, Point s)
 /**
  * Discrete depth-scaling for sprites: how much to shrink a sprite at the
  * given isometric depth, expressed as a zoom-level offset (0 = full size,
- * 1 = half size, 2 = quarter size).
+ * 1 = half size, 2 = quarter size, 3 = eighth size).
  *
  * The perspective projection scales objects by (focal + iso_y - focus_y) / focal.
  * We normalise this against the nearest visible point (the bottom edge of
  * the viewport, #CameraParams::iso_ref) and pick the discrete zoom step
- * closest to the continuous scale. The step thresholds get more aggressive
- * with a flatter pitch, so distant sprites shrink visibly when the camera
- * is tilted down.
+ * closest to the continuous scale. Four zones split the visible depth
+ * range so the size decrease is visible across the whole viewport. The
+ * step thresholds get more aggressive with a flatter pitch, so distant
+ * sprites shrink visibly when the camera is tilted down.
  *
  * @param c Camera parameters (must be enabled).
  * @param iso_y Isometric (unprojected) y of the sprite anchor.
- * @return 0, 1 or 2.
+ * @return 0, 1, 2 or 3.
  */
 inline int ZoomScaleForDepth(const CameraParams &c, int iso_y)
 {
 	if (!c.enabled) return 0;
 
 	const int64_t denom = static_cast<int64_t>(c.focal) + c.iso_ref - c.focus_y;
-	if (denom <= 0) return 2;
+	if (denom <= 0) return 3;
 
 	const int64_t rel = (static_cast<int64_t>(c.focal) + iso_y - c.focus_y) * 100 / denom;
 	/* Step thresholds, shifted by pitch: flatter camera -> shrink more
-	 * aggressively in the distance. 95/55: only the nearest objects stay
-	 * full-size, so the depth effect is clearly visible. */
+	 * aggressively in the distance. */
 	const int t1 = 95 + (c.pitch - 50) / 10;
-	const int t2 = 55 + (c.pitch - 50) / 10;
+	const int t2 = 70 + (c.pitch - 50) / 10;
+	const int t3 = 45 + (c.pitch - 50) / 10;
 	if (rel >= t1) return 0;
 	if (rel >= t2) return 1;
-	return 2;
+	if (rel >= t3) return 2;
+	return 3;
 }
 
 #endif /* PROJECTIVE_HPP */
