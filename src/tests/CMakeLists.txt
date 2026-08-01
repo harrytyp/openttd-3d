@@ -7,6 +7,7 @@ add_test_files(
     landscape_partial_pixel_z.cpp
     math_func.cpp
     projective_test.cpp
+    camera3d_test.cpp
     mock_environment.h
     mock_fontcache.h
     mock_spritecache.cpp
