@@ -11,6 +11,12 @@ on:
 jobs:
   main:
     runs-on: ubuntu-latest
+    # The label action needs write access to pull requests; without this the
+    # default (read-only) GITHUB_TOKEN fails with "Resource not accessible by
+    # integration" and the workflow fails on every push.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: check if prs are in need of a rebase
         uses: eps1lon/actions-label-merge-conflict@v3

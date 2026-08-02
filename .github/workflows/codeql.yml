@@ -109,6 +109,14 @@ jobs:
         output: sarif-results/cpp.sarif
 
     - name: Upload results
+      # Uploading SARIF results requires code scanning, which needs GitHub
+      # Advanced Security — not enabled on this private repository. Without
+      # continue-on-error this step fails with "Code scanning is not enabled
+      # for this repository" on EVERY run, turning CI permanently red even
+      # though the analysis itself succeeds. Keep the step non-fatal; if code
+      # scanning is enabled in the repository settings later, the upload will
+      # start succeeding automatically.
+      continue-on-error: true
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: sarif-results/cpp.sarif
