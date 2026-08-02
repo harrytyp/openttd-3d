@@ -1304,6 +1304,19 @@ static void ViewportAddLandscape()
 
 void ViewportAddLandscape3D(int x0, int y0, int x1, int y1)
 {
+	/* The sprite collection culls against the viewport dpi rectangle
+	 * (AddSortableSpriteToDraw), so enlarge it to the whole map: every
+	 * object in the orbit view gets collected regardless of what the
+	 * legacy 2D viewport rectangle covers. */
+	DrawPixelInfo vd_dpi_saved = _vd.dpi;
+	DrawPixelInfo dpi3d = _vd.dpi;
+	dpi3d.left = -(1 << 20);
+	dpi3d.top = -(1 << 20);
+	dpi3d.width = 1 << 21;
+	dpi3d.height = 1 << 21;
+	_vd.dpi = dpi3d;
+	AutoRestoreBackup dpi_backup(_cur_dpi, &dpi3d);
+
 	for (int ty = y0; ty < y1; ty++) {
 		for (int tx = x0; tx < x1; tx++) {
 			const TileIndex tile = TileXY(tx, ty);
@@ -1319,6 +1332,8 @@ void ViewportAddLandscape3D(int x0, int y0, int x1, int y1)
 			_tile_type_procs[GetTileType(tile)]->draw_tile_proc(&_cur_ti);
 		}
 	}
+
+	_vd.dpi = vd_dpi_saved;
 }
 
 /**
