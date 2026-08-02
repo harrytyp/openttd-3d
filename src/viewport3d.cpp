@@ -494,10 +494,13 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 			}
 			const GLuint tex = GetSpriteTexture(tex_sprite, zoom);
 			if (tex == 0) continue;
-			/* Sprite pixel -> world: 0.5 world units per pixel (tile = 16
-			 * world units = 32 screen pixels in the legacy projection). */
-			const float hw = spr->width * 0.25f;  /* half world width */
-			const float h = spr->height * 0.5f;   /* world height */
+			/* Sprite pixel -> world: 0.5 world units per pixel at the current
+			 * zoom (tile = 16 world units = 32 screen pixels in the legacy
+			 * projection). The Sprite width/height are the zoom-0 dimensions;
+			 * scale them to the current zoom first or the billboards end up
+			 * 4x too large and overlap their neighbours. */
+			const float hw = UnScaleByZoom(spr->width, zoom) * 0.25f;  /* half world width */
+			const float h = UnScaleByZoom(spr->height, zoom) * 0.5f;   /* world height */
 			const float bx = static_cast<float>(ps.xmin + ps.xmax) * 0.5f;
 			const float by = static_cast<float>(ps.ymin + ps.ymax) * 0.5f;
 			const float bz = static_cast<float>(ps.zmin);
