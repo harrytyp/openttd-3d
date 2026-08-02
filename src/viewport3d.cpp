@@ -33,8 +33,10 @@
 #include "debug.h"
 #include "safeguards.h"
 
-/** Number of tiles rendered around the camera target. */
-static constexpr int ORBIT_RADIUS_TILES = 60;
+/* Radius of the heightfield mesh around the camera-target bounding box,
+ * in tiles. Large enough that the visible map up to the horizon is
+ * covered (the camera orbits far outside the map). */
+static constexpr int ORBIT_RADIUS_TILES = 120;
 /** World size of one tile (matches RemapCoords units). */
 static constexpr int TILE_WORLD = TILE_SIZE;
 /** World height of one height level. */
@@ -297,11 +299,20 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	if (!LoadGL()) return;
 	if (!CompileShader()) return;
 
-	/* The world-screenshot dpi already carries unscaled dimensions (and the
-	 * WorldScreenshot zoom level is negative), so only unscale the regular
-	 * frame dpi. */
-	const int width = dpi.zoom == ZoomLevel::WorldScreenshot ? dpi.width : UnScaleByZoom(dpi.width, dpi.zoom);
-	const int height = dpi.zoom == ZoomLevel::WorldScreenshot ? dpi.height : UnScaleByZoom(dpi.height, dpi.zoom);
+	/* The world-screenshot dpi carries the pixel width already, and its
+	 * height is zoom-scaled. It is identified by width == pitch (the PNG
+	 * provider passes w as pitch), which the regular frame dpi never has
+	 * (pitch is the screen pitch). The PNG provider allocates the row
+	 * buffer as `width * maxlines` with
+	 * maxlines = Clamp(65536 / width, 16, 128), so clamp the strip height
+	 * to that or the readback writes past the buffer. The frame dpi may
+	 * be a partial dirty rect — always render the whole viewport instead,
+	 * writing from the dpi origin. */
+	const bool world_screenshot = dpi.width == dpi.pitch;
+	const int width = world_screenshot ? dpi.width : vp.width;
+	const int height = world_screenshot
+			? std::min(UnScaleByZoom(dpi.height, dpi.zoom), Clamp(65536 / std::max(1, dpi.width), 16, 128))
+			: vp.height;
 	if (width <= 0 || height <= 0) return;
 	const ZoomLevel zoom = dpi.zoom;
 
@@ -310,12 +321,17 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 
 	/* --- Build the heightfield mesh --- */
 	_mesh_data.clear();
-	const int cx = Clamp(static_cast<int>(cam.target.x) / TILE_WORLD, 0, Map::SizeX() - 1);
-	const int cy = Clamp(static_cast<int>(cam.target.y) / TILE_WORLD, 0, Map::SizeY() - 1);
-	const int x0 = std::max(0, cx - ORBIT_RADIUS_TILES);
-	const int x1 = std::min(static_cast<int>(Map::SizeX()), cx + ORBIT_RADIUS_TILES);
-	const int y0 = std::max(0, cy - ORBIT_RADIUS_TILES);
-	const int y1 = std::min(static_cast<int>(Map::SizeY()), cy + ORBIT_RADIUS_TILES);
+	/* The camera orbits far outside the map, so the visible tiles span
+	 * from the camera position (near foreground) to the target. Use the
+	 * bounding box of both, plus a margin, as the mesh region. */
+	const int cam_tx = Clamp(static_cast<int>(cam.Eye().x) / TILE_WORLD, 0, Map::SizeX() - 1);
+	const int cam_ty = Clamp(static_cast<int>(cam.Eye().y) / TILE_WORLD, 0, Map::SizeY() - 1);
+	const int tgt_tx = Clamp(static_cast<int>(cam.target.x) / TILE_WORLD, 0, Map::SizeX() - 1);
+	const int tgt_ty = Clamp(static_cast<int>(cam.target.y) / TILE_WORLD, 0, Map::SizeY() - 1);
+	const int x0 = std::max(0, std::min(cam_tx, tgt_tx) - ORBIT_RADIUS_TILES);
+	const int x1 = std::min(static_cast<int>(Map::SizeX()), std::max(cam_tx, tgt_tx) + ORBIT_RADIUS_TILES);
+	const int y0 = std::max(0, std::min(cam_ty, tgt_ty) - ORBIT_RADIUS_TILES);
+	const int y1 = std::min(static_cast<int>(Map::SizeY()), std::max(cam_ty, tgt_ty) + ORBIT_RADIUS_TILES);
 
 	for (int ty = y0; ty < y1; ty++) {
 		for (int tx = x0; tx < x1; tx++) {
@@ -492,8 +508,13 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	/* --- Read back into the software screen buffer (y flipped) --- */
 	std::vector<uint8_t> tmp(static_cast<size_t>(width) * height * 4);
 	p_glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data());
-	uint32_t *dst = static_cast<uint32_t *>(dpi.dst_ptr);
-	const int pitch_words = dpi.pitch / 4;
+	uint32_t *dst = static_cast<uint32_t *>(_screen.dst_ptr);
+	/* The blitter addresses rows as `y * _screen.pitch` in uint32 words
+	 * (see Blitter_32bppBase::MoveTo), so the pitch is already in words.
+	 * Use the screen base pointer, not dpi.dst_ptr: the latter is the
+	 * MoveTo result which already includes the scroll offset, so rows
+	 * written as y*pitch+x from there would overlap. */
+	const int pitch_words = _screen.pitch;
 	for (int y = 0; y < height; y++) {
 		const uint8_t *src_row = tmp.data() + static_cast<size_t>(height - 1 - y) * width * 4;
 		for (int x = 0; x < width; x++) {
