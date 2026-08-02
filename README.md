@@ -4,6 +4,12 @@ Experimental 3D camera and depth rendering for [OpenTTD](https://github.com/Open
 
 This is a fork that modifies the real OpenTTD rendering pipeline — not a separate viewer or a mod. The camera looks at the map with a real perspective (vanishing point), and sprites shrink continuously with their distance from the camera. Gameplay logic is untouched.
 
+![Orbit camera view](docs/stage3-orbit.png)
+
+*Stage 3 orbit view: the ground is a real 3D heightfield mesh, and trees,
+roads and buildings are drawn as camera-facing billboards across the whole
+visible map.*
+
 ## Status
 
 Working on `master`:
@@ -24,7 +30,7 @@ Working on `master`:
 |-------|------|--------|
 | 1 | Perspective camera: mode-7-style projection in the viewport renderer, scroll/picking corrected, CTRL+D hotkey | ✅ Done |
 | 2 | Depth scaling: sprites shrink with distance — continuous perspective factor, pitch-dependent, sky above the horizon | ✅ Done |
-| 3 | True 3D rendering: GL pipeline, real ground mesh (heightmap), free mouse-driven camera (orbit / zoom / pan / yaw), Z-buffer | ⬜ Not started — [detailed plan in issue #3](https://github.com/harrytyp/openttd-3d/issues/3) |
+| 3 | True 3D rendering: GL pipeline, real ground mesh (heightmap), free mouse-driven camera (orbit / zoom / pan / yaw), Z-buffer | 🚧 In progress — orbit camera, ground mesh, billboards, picking done ([issue #3](https://github.com/harrytyp/openttd-3d/issues/3)) |
 
 ### Notes on stage 3
 
@@ -34,6 +40,11 @@ Working on `master`:
 ## Building
 
 The fork is based on upstream OpenTTD `77ba2b2` (master). Build instructions are identical to upstream — see the [original repository](https://github.com/OpenTTD/OpenTTD).
+
+## License
+
+GPL-2.0 — see [LICENSE](LICENSE) (and [COPYING.md](COPYING.md) for the full
+license text as used by upstream OpenTTD).
 
 ## Differences from upstream
 
