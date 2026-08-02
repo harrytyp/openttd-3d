@@ -1302,6 +1302,25 @@ static void ViewportAddLandscape()
 	}
 }
 
+void ViewportAddLandscape3D(int x0, int y0, int x1, int y1)
+{
+	for (int ty = y0; ty < y1; ty++) {
+		for (int tx = x0; tx < x1; tx++) {
+			const TileIndex tile = TileXY(tx, ty);
+			_cur_ti.x = tx * TILE_SIZE;
+			_cur_ti.y = ty * TILE_SIZE;
+			_cur_ti.tile = tile;
+			std::tie(_cur_ti.tileh, _cur_ti.z) = GetTilePixelSlope(tile);
+			_vd.foundation_part = FoundationPart::None;
+			_vd.foundation[FoundationPart::Normal] = -1;
+			_vd.foundation[FoundationPart::Halftile] = -1;
+			_vd.last_foundation_child[FoundationPart::Normal] = LAST_CHILD_NONE;
+			_vd.last_foundation_child[FoundationPart::Halftile] = LAST_CHILD_NONE;
+			_tile_type_procs[GetTileType(tile)]->draw_tile_proc(&_cur_ti);
+		}
+	}
+}
+
 /**
  * Add a string to draw in the current viewport.
  * @param dpi current viewport area

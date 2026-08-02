@@ -19,6 +19,15 @@ struct DrawPixelInfo;
 /** Render the main viewport with the stage-3 GL renderer (ground heightfield mesh). */
 void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi);
 
+/**
+ * Stage-3 orbit mode: collect the parent sprites of every tile in the given
+ * map region (inclusive-exclusive tile coords) so the GL renderer can draw
+ * them as billboards. The regular 2D landscape collection only covers the
+ * legacy isometric viewport rectangle, which is far smaller than the orbit
+ * camera's view.
+ */
+void ViewportAddLandscape3D(int x0, int y0, int x1, int y1);
+
 /** Pick the tile under the given viewport pixel in orbit mode (raycast against the heightfield). */
 bool PickTile3D(const Viewport &vp, int x, int y, TileIndex &tile);
 

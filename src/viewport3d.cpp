@@ -9,6 +9,7 @@
 
 #include "stdafx.h"
 #include "core/camera3d.hpp"
+#include "viewport3d.h"
 #include "landscape.h"
 #include "map_func.h"
 #include "map_type.h"
@@ -454,6 +455,12 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	p_glBindBuffer(GL_ARRAY_BUFFER, _bill_vbo);
 
 	std::vector<float> bill_data;
+	/* Stage-3 collection: the 2D landscape pass only gathered the sprites
+	 * of the legacy isometric viewport rectangle, which is far smaller than
+	 * the orbit camera's view. Collect the sprites of the whole mesh region
+	 * so roads, houses and trees are drawn across the entire visible map. */
+	_vd.parent_sprites_to_draw.clear();
+	ViewportAddLandscape3D(x0, y0, x1, y1);
 	std::vector<std::pair<GLuint, int>> bill_groups;
 	if (!_vd.parent_sprites_to_draw.empty()) {
 		/* Horizontal camera direction (normalised). */
