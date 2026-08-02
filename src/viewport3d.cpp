@@ -81,6 +81,7 @@ GL_FUNC(glTexParameteri, PFNGLTEXPARAMETERIPROC)
 GL_FUNC(glActiveTexture, PFNGLACTIVETEXTUREPROC)
 GL_FUNC(glUniform1i, PFNGLUNIFORM1IPROC)
 GL_FUNC(glBlendFunc, PFNGLBLENDFUNCPROC)
+GL_FUNC(glDepthFunc, PFNGLDEPTHFUNCPROC)
 GL_FUNC(glPixelStorei, PFNGLPIXELSTOREIPROC)
 #undef GL_FUNC
 
@@ -102,7 +103,7 @@ static bool LoadGL()
 	GL_FUNC(glViewport) GL_FUNC(glClear) GL_FUNC(glClearColor) GL_FUNC(glEnable) GL_FUNC(glDisable)
 	GL_FUNC(glDrawArrays) GL_FUNC(glReadPixels) GL_FUNC(glDeleteShader) GL_FUNC(glDeleteProgram)
 	GL_FUNC(glGenTextures) GL_FUNC(glBindTexture) GL_FUNC(glTexImage2D) GL_FUNC(glTexParameteri) GL_FUNC(glActiveTexture) GL_FUNC(glUniform1i)
-	GL_FUNC(glBlendFunc) GL_FUNC(glPixelStorei)
+	GL_FUNC(glBlendFunc) GL_FUNC(glPixelStorei) GL_FUNC(glDepthFunc)
 #undef GL_FUNC
 	_gl_ok = true;
 	return true;
@@ -234,6 +235,9 @@ static GLuint GetSpriteTexture(SpriteID sprite, ZoomLevel zoom)
 	GLuint tex = 0;
 	p_glGenTextures(1, &tex);
 	p_glBindTexture(GL_TEXTURE_2D, tex);
+	/* A pixel-unpack buffer bound elsewhere redirects TexImage2D to read
+	 * from the PBO; unbind it so the CPU sprite data is used. */
+	p_glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 	p_glPixelStorei(GL_UNPACK_ROW_LENGTH, si.sprite_line_size / 4);
 	p_glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_BGRA, GL_UNSIGNED_BYTE, sd->data + si.sprite_offset);
 	p_glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
@@ -340,10 +344,12 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 			const Vec3 col = GroundColor(tile);
 			const float wx = static_cast<float>(tx * TILE_WORLD);
 			const float wy = static_cast<float>(ty * TILE_WORLD);
-			const float zn = static_cast<float>(z + ((slope & SLOPE_N) ? HEIGHT_WORLD : 0));
-			const float ze = static_cast<float>(z + ((slope & SLOPE_E) ? HEIGHT_WORLD : 0));
-			const float zs = static_cast<float>(z + ((slope & SLOPE_S) ? HEIGHT_WORLD : 0));
-			const float zw = static_cast<float>(z + ((slope & SLOPE_W) ? HEIGHT_WORLD : 0));
+			/* GetTileSlopeZ returns the height in TileHeight units (e.g. 2),
+			 * the world works in HEIGHT_WORLD-scaled units (16). */
+			const float zn = static_cast<float>((z + ((slope & SLOPE_N) ? 1 : 0)) * HEIGHT_WORLD);
+			const float ze = static_cast<float>((z + ((slope & SLOPE_E) ? 1 : 0)) * HEIGHT_WORLD);
+			const float zs = static_cast<float>((z + ((slope & SLOPE_S) ? 1 : 0)) * HEIGHT_WORLD);
+			const float zw = static_cast<float>((z + ((slope & SLOPE_W) ? 1 : 0)) * HEIGHT_WORLD);
 			const float ts = static_cast<float>(TILE_WORLD);
 			/* Two triangles: (N, E, S) and (N, S, W). */
 			const Vec3 verts[4] = {
@@ -411,13 +417,28 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 	p_glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	p_glEnable(GL_DEPTH_TEST);
 	p_glDisable(GL_CULL_FACE);
+	p_glDisable(GL_SCISSOR_TEST); /* the GUI may leave a scissor rect active */
 
 	const Mat4 mvp = cam.ViewProjMatrix();
 	p_glUseProgram(_program);
 	p_glUniformMatrix4fv(_u_mvp, 1, GL_FALSE, mvp.m);
-	p_glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(_mesh_data.size() / 6));
+	/* Re-bind the mesh buffer and re-set the attribute pointers before
+	 * every draw: the billboard pass or any other GL code may have
+	 * changed the VAO state (a stray glVertexAttribPointer with another
+	 * VBO silently redirects the whole mesh draw to the wrong buffer). */
+	p_glBindVertexArray(_vao);
+	p_glBindBuffer(GL_ARRAY_BUFFER, _vbo);
+	p_glEnableVertexAttribArray(0);
+	p_glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), nullptr);
+	p_glEnableVertexAttribArray(1);
+	p_glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), reinterpret_cast<void *>(3 * sizeof(float)));
+	p_glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizeiptr>(_mesh_data.size() / 6));
 
 	/* --- Billboards: camera-facing quads for the collected parent sprites --- */
+	/* LEQUAL: the quads stand on the ground tiles at the same depth as the
+	 * mesh faces; with the default LESS test most billboard fragments were
+	 * rejected and no trees/buildings were visible. */
+	p_glDepthFunc(GL_LEQUAL);
 	p_glEnable(GL_BLEND);
 	p_glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	p_glUseProgram(_bill_program);
@@ -504,6 +525,8 @@ void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi)
 			p_glDrawArrays(GL_TRIANGLES, g.second, 6);
 		}
 	}
+
+	p_glDepthFunc(GL_LESS);
 
 	/* --- Read back into the software screen buffer (y flipped) --- */
 	std::vector<uint8_t> tmp(static_cast<size_t>(width) * height * 4);

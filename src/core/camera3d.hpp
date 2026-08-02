@@ -173,12 +173,12 @@ struct Camera3D {
 	Mat4 ViewMatrix() const { return Mat4::LookAt(Eye(), target, { 0, 0, 1 }); }
 	Mat4 ProjectionMatrix() const
 	{
-		/* near/far chosen for depth precision: with near=0.1 and far=100000
-		 * the 24-bit depth resolution at z=1600 is only ~1.5 world units,
-		 * so distant ground faces collide in the depth test and leave sky
-		 * gaps (visible as horizontal bands). near=1/far=20000 keeps the
-		 * whole map (max distance ~6000) well within the precision budget. */
-		return Mat4::Perspective(fov * static_cast<float>(M_PI) / 180.0f, aspect, 1.0f, 20000.0f);
+		/* near/far chosen for depth precision: the 24-bit depth resolution
+		 * at distance z is z^2/(near * 2^24). near=10 gives 0.00024 world
+		 * units at z=200 (close orbit) and 0.15 at z=5000 (far orbit),
+		 * keeping both the close-up tiles and the whole map inside the
+		 * precision budget (near=1 left black holes inside close tiles). */
+		return Mat4::Perspective(fov * static_cast<float>(M_PI) / 180.0f, aspect, 10.0f, 20000.0f);
 	}
 	Mat4 ViewProjMatrix() const { return ProjectionMatrix() * ViewMatrix(); }
 
