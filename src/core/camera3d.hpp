@@ -10,6 +10,12 @@
 #ifndef CAMERA3D_HPP
 #define CAMERA3D_HPP
 
+/* M_PI is a POSIX/GNU extension; MSVC only provides it with
+ * _USE_MATH_DEFINES. Define our own constant instead. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include <cmath>
 #include <utility>
 
