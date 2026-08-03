@@ -142,6 +142,7 @@ endif()
 if(NOT OPTION_DEDICATED)
     if(WIN32)
         find_package(Xaudio2)
+        find_package(SDL2)
     else()
         find_package(Allegro)
         if(NOT APPLE)
@@ -331,10 +332,14 @@ if(NOT OPTION_DEDICATED)
     link_package(ICU_UC TARGET ICU::uc)
     link_package(OpusFile TARGET OpusFile::opusfile)
 
-    if(SDL2_FOUND AND OPENGL_FOUND AND UNIX)
-        # SDL2 dynamically loads OpenGL if needed, so do not link to OpenGL when
-        # on Linux. For Windows, we need to link to OpenGL as we also have a win32
-        # driver using it.
+    if(SDL2_FOUND AND OPENGL_FOUND)
+        if(UNIX)
+            # SDL2 dynamically loads OpenGL if needed, so do not link to OpenGL when
+            # on Linux. For Windows, we need to link to OpenGL as we also have a win32
+            # driver using it.
+        else()
+            link_package(OpenGL TARGET OpenGL::GL)
+        endif()
         add_definitions(-DWITH_OPENGL -DGL_ALLOW_SOFTWARE_RENDERER)
         message(STATUS "OpenGL found -- -DWITH_OPENGL -- (via SDL2)")
     else()

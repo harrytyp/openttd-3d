@@ -47,7 +47,7 @@
     },
     {
       "name": "sdl2",
-      "platform": "linux"
+      "platform": "linux | windows"
     },
     {
       "name": "zlib"
