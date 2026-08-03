@@ -11,6 +11,13 @@ on:
     - 'cmake/**'
     - '.github/workflows/windows-build.yml'
 
+concurrency:
+  group: windows-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
 jobs:
   windows:
     name: Build portable openttd.exe
@@ -57,10 +64,19 @@ jobs:
         Expand-Archive -Path opensfx.zip -DestinationPath package/baseset -Force
         curl.exe -L https://cdn.openttd.org/openmsx-releases/0.4.2/openmsx-0.4.2-all.zip -o openmsx.zip
         Expand-Archive -Path openmsx.zip -DestinationPath package/baseset -Force
+        Compress-Archive -Path package -DestinationPath openttd3d-windows.zip
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: openttd3d-windows
-        path: package
-        retention-days: 14
+    - name: Create versioned pre-release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        LAST=$(gh release list --limit 100 --json tagName -q '.[].tagName' | grep -E '^v0\.0\.[0-9]+$' | sort -V | tail -1 | sed 's/^v//')
+        if [ -z "$LAST" ]; then V="0.0.1"; else V=$(echo "$LAST" | awk -F. '{print $1"."$2"."$3+1}'); fi
+        echo "Version: v$V"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git tag "v$V"
+        git push origin "v$V"
+        NOTES="Pre-alpha build of the 3D orbit renderer. Commit: $(git rev-parse --short HEAD)"
+        gh release create "v$V" openttd3d-windows.zip --title "v$V" --notes "$NOTES" --prerelease
