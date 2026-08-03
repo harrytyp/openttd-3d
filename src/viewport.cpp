@@ -397,8 +397,8 @@ Point TranslateXYToTileCoord(const Viewport &vp, int x, int y, bool clamp_to_map
 		 * the tile by raycasting against the heightfield mesh. */
 		TileIndex tile;
 		if (PickTile3D(vp, x - vp.left, y - vp.top, tile)) {
-			return { static_cast<int>(TileX(tile)) * TILE_SIZE + TILE_SIZE / 2,
-			         static_cast<int>(TileY(tile)) * TILE_SIZE + TILE_SIZE / 2 };
+			return { static_cast<int>(TileX(tile) * TILE_SIZE + TILE_SIZE / 2),
+			         static_cast<int>(TileY(tile) * TILE_SIZE + TILE_SIZE / 2) };
 		}
 	}
 

@@ -239,6 +239,13 @@ include(SourceList)
 # Needed by everything that uses Squirrel
 include_directories(${CMAKE_SOURCE_DIR}/src/3rdparty/squirrel/include)
 
+# The Khronos GL headers (GL/glcorearb.h, GL/glext.h) ship with the
+# Linux GL stacks but not with MSVC; the vendored copies in src/GL/
+# cover the Windows build.
+if(WIN32)
+    include_directories(${CMAKE_SOURCE_DIR}/src)
+endif()
+
 include(MSVCFilters)
 
 add_library(openttd_lib OBJECT ${GENERATED_SOURCE_FILES})
