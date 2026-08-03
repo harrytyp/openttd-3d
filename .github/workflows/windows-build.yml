@@ -45,18 +45,16 @@ jobs:
       run: cmake --build build
 
     - name: Package (exe + OpenGFX baseset)
-      shell: bash
+      shell: pwsh
       run: |
-        mkdir -p package/baseset
-        curl -L https://cdn.openttd.org/opengfx-releases/0.6.0/opengfx-0.6.0-all.zip -o opengfx.zip
-        unzip -o opengfx.zip -d package/baseset
-        cp build/openttd.exe package/
-        cd package
-        zip -r ../openttd3d-windows.zip .
+        New-Item -ItemType Directory -Force package/baseset | Out-Null
+        curl.exe -L https://cdn.openttd.org/opengfx-releases/0.6.0/opengfx-0.6.0-all.zip -o opengfx.zip
+        Expand-Archive -Path opengfx.zip -DestinationPath package/baseset -Force
+        Copy-Item build/openttd.exe package/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: openttd3d-windows
-        path: openttd3d-windows.zip
+        path: package
         retention-days: 14
