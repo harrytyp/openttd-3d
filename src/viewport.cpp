@@ -1861,6 +1861,18 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	 * the software pipeline entirely. The landscape/vehicle collection still
 	 * runs so the renderer can draw the objects as billboards. */
 	if (_settings_client.gui.three_d_camera == 2) {
+		/* The 2D software pipeline only repaints the dirty rectangles (and
+		 * relies on the old buffer contents elsewhere), but the perspective
+		 * GL renderer must repaint the whole viewport on every draw: the
+		 * camera moves with the scroll position, so partial repaints leave
+		 * shifted leftovers that smear across the screen. */
+		_vd.dpi.left = vp.virtual_left & mask;
+		_vd.dpi.top = vp.virtual_top & mask;
+		_vd.dpi.width = vp.virtual_width & mask;
+		_vd.dpi.height = vp.virtual_height & mask;
+		int x = UnScaleByZoom(_vd.dpi.left - (vp.virtual_left & mask), vp.zoom) + vp.left;
+		int y = UnScaleByZoom(_vd.dpi.top - (vp.virtual_top & mask), vp.zoom) + vp.top;
+		_vd.dpi.dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_cur_dpi->dst_ptr, x - _cur_dpi->left, y - _cur_dpi->top);
 		ViewportAddLandscape();
 		ViewportAddVehicles(&_vd.dpi);
 		RenderViewport3D(vp, _vd.dpi);
