@@ -51,6 +51,12 @@ jobs:
         Copy-Item build/openttd.exe package/
         Copy-Item -Recurse build/lang package/
         Copy-Item -Recurse build/baseset package/
+        curl.exe -L https://cdn.openttd.org/opengfx-releases/0.6.0/opengfx-0.6.0-all.zip -o opengfx.zip
+        Expand-Archive -Path opengfx.zip -DestinationPath package/baseset -Force
+        curl.exe -L https://cdn.openttd.org/opensfx-releases/1.0.3/opensfx-1.0.3-all.zip -o opensfx.zip
+        Expand-Archive -Path opensfx.zip -DestinationPath package/baseset -Force
+        curl.exe -L https://cdn.openttd.org/openmsx-releases/0.4.2/openmsx-0.4.2-all.zip -o openmsx.zip
+        Expand-Archive -Path openmsx.zip -DestinationPath package/baseset -Force
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
