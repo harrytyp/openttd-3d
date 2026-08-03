@@ -1,0 +1,57 @@
+name: Windows build (portable)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+    - master
+    paths:
+    - 'src/**'
+    - 'CMakeLists.txt'
+    - 'cmake/**'
+    - '.github/workflows/windows-build.yml'
+
+jobs:
+  windows:
+    name: Build portable openttd.exe
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    - name: Setup vcpkg
+      id: vcpkg
+      uses: OpenTTD/actions/setup-vcpkg@v6
+
+    - name: Configure
+      shell: bash
+      run: |
+        mkdir build
+        cd build
+        cmake .. \
+          -GNinja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static \
+          -DCMAKE_TOOLCHAIN_FILE="${{ steps.vcpkg.outputs.vcpkg-cmake }}"
+
+    - name: Build
+      shell: bash
+      run: cmake --build build
+
+    - name: Package (exe + OpenGFX baseset)
+      shell: bash
+      run: |
+        mkdir -p package/baseset
+        curl -L https://cdn.openttd.org/opengfx-releases/0.6.0/opengfx-0.6.0-all.zip -o opengfx.zip
+        unzip -o opengfx.zip -d package/baseset
+        cp build/openttd.exe package/
+        cd package
+        zip -r ../openttd3d-windows.zip .
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: openttd3d-windows
+        path: openttd3d-windows.zip
+        retention-days: 14
