@@ -1,0 +1,11 @@
+name: Runner probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+    - name: Echo
+      run: echo "runner alive"
