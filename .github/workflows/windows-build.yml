@@ -15,9 +15,6 @@ concurrency:
   group: windows-build
   cancel-in-progress: false
 
-permissions:
-  contents: write
-
 jobs:
   windows:
     name: Build portable openttd.exe
