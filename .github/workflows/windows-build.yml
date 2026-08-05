@@ -11,6 +11,13 @@ on:
     - 'cmake/**'
     - '.github/workflows/windows-build.yml'
 
+concurrency:
+  group: windows-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
 jobs:
   windows:
     name: Build portable openttd.exe
