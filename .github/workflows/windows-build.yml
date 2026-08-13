@@ -22,6 +22,9 @@ jobs:
   windows:
     name: Build portable openttd.exe
     runs-on: windows-latest
+    # Hard cap per run: without this, a hung vcpkg/build step can consume up to
+    # the 6h default and drain the account's included Actions minutes in one run.
+    timeout-minutes: 120
 
     steps:
     - name: Checkout
