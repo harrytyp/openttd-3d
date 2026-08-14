@@ -5,6 +5,16 @@ on:
   push:
     branches:
     - master
+    # Skip the full matrix on docs-only pushes: on this private repo every
+    # job is billed against the monthly Actions quota, so trivial pushes
+    # used to burn hundreds of minutes (macOS bills at 10x).
+    paths:
+    - 'src/**'
+    - 'CMakeLists.txt'
+    - 'cmake/**'
+    - 'vcpkg.json'
+    - '.github/workflows/ci-*.yml'
+    - '.github/workflows/windows-build.yml'
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
@@ -52,6 +62,13 @@ jobs:
       extra-cmake-parameters: ${{ matrix.extra-cmake-parameters }}
 
   macos:
+    # macOS runners bill at 10x the Linux rate on private repos; running the
+    # two macOS jobs on EVERY push to master could consume the entire monthly
+    # Free-plan quota by itself. Run the full macOS matrix on pull requests
+    # (where review coverage matters), and skip it on plain pushes - Linux,
+    # Windows and Emscripten still cover build correctness there.
+    if: github.event_name == 'pull_request'
+
     strategy:
       fail-fast: false
       matrix:

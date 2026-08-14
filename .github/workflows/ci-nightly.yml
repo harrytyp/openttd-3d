@@ -1,8 +1,11 @@
 name: CI - Nightly
 
 on:
+  # Weekly (Sunday 03:00 UTC) instead of daily: macOS/MinGW jobs bill at 10x/2x
+  # on this private repo, and a daily schedule alone exceeded the Free-plan
+  # monthly quota, which took ALL workflows in the repo down.
   schedule:
-  - cron: '0 3 * * *'
+  - cron: '0 3 * * 0'
   workflow_dispatch:
 
 env:

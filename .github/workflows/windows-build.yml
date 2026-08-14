@@ -34,6 +34,16 @@ jobs:
       id: vcpkg
       uses: OpenTTD/actions/setup-vcpkg@v6
 
+    - name: Cache vcpkg artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          build/vcpkg_installed
+          ${{ runner.tool_cache }}/vcpkg
+        key: vcpkg-x64-windows-static-${{ hashFiles('vcpkg.json') }}
+        restore-keys: |
+          vcpkg-x64-windows-static-
+
     - name: Configure developer command prompt
       uses: ilammy/msvc-dev-cmd@v1
       with:
