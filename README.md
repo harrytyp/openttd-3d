@@ -1,5 +1,19 @@
 # OpenTTD 3D
 
+> [!CAUTION]
+> ## ⚠️ EARLY EXPERIMENT — NOT STABLE
+>
+> **This project is an early, experimental prototype.**
+> - It is **not stable**: expect crashes, rendering glitches, broken features and missing functionality.
+> - It is **not a release**, not a beta, and not production-ready in any form.
+> - Everything here may change, break or be removed at any time.
+> - **Do not rely on this for anything** — use the [official OpenTTD](https://github.com/OpenTTD/OpenTTD) for actual gameplay.
+>
+> <p align="center">
+> <a href="https://github.com/harrytyp/openttd-3d/actions"><img src="https://img.shields.io/badge/status-experimental-orange?style=for-the-badge"></a>
+> <img src="https://img.shields.io/badge/version-0.0.x--wip-red?style=for-the-badge">
+> </p>
+
 Experimental 3D camera and depth rendering for [OpenTTD](https://github.com/OpenTTD/OpenTTD).
 
 This is a fork that modifies the real OpenTTD rendering pipeline — not a separate viewer or a mod. The camera looks at the map with a real perspective (vanishing point), and sprites shrink continuously with their distance from the camera. Gameplay logic is untouched.
