@@ -569,7 +569,6 @@ add_files(
     vehiclelist_cmd.h
     vehiclelist_func.h
     viewport.cpp
-    viewport3d.cpp
     viewport_cmd.h
     viewport_drawer.h
     viewport_func.h
@@ -597,4 +596,11 @@ add_files(
     window_type.h
     zoom_func.h
     zoom_type.h
+)
+
+# The 3D rendering pipeline needs SDL (for the window/GL context) and is
+# not part of the dedicated (headless) server build.
+add_files(
+    viewport3d.cpp
+    CONDITION NOT OPTION_DEDICATED AND SDL2_FOUND
 )
