@@ -1,6 +1,9 @@
 name: CI - Build
 
 on:
+  # Manual trigger: useful for running the full matrix on demand (e.g. after
+  # the monthly Actions-quota reset) without pushing a commit.
+  workflow_dispatch:
   pull_request:
   push:
     branches:
