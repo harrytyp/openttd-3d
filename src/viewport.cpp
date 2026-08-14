@@ -392,6 +392,7 @@ Point TranslateXYToTileCoord(const Viewport &vp, int x, int y, bool clamp_to_map
 		return pt;
 	}
 
+#ifdef WITH_VIEWPORT3D
 	if (_settings_client.gui.three_d_camera == 2) {
 		/* Orbit camera: the 2D inverse projection does not apply, so pick
 		 * the tile by raycasting against the heightfield mesh. */
@@ -401,6 +402,7 @@ Point TranslateXYToTileCoord(const Viewport &vp, int x, int y, bool clamp_to_map
 			         static_cast<int>(TileY(tile) * TILE_SIZE + TILE_SIZE / 2) };
 		}
 	}
+#endif /* WITH_VIEWPORT3D */
 
 	Point pt = {
 		ScaleByZoom(x - vp.left, vp.zoom) + vp.virtual_left,
@@ -1857,6 +1859,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	_vd.dpi.dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_cur_dpi->dst_ptr, x - _cur_dpi->left, y - _cur_dpi->top);
 	AutoRestoreBackup dpi_backup(_cur_dpi, &_vd.dpi);
 
+#ifdef WITH_VIEWPORT3D
 	/* Stage-3 orbit camera: render the viewport with the GL renderer and skip
 	 * the software pipeline entirely. The landscape/vehicle collection still
 	 * runs so the renderer can draw the objects as billboards. */
@@ -1878,6 +1881,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		RenderViewport3D(vp, _vd.dpi);
 		return;
 	}
+#endif /* WITH_VIEWPORT3D */
 
 	ViewportAddLandscape();
 	ViewportAddVehicles(&_vd.dpi);

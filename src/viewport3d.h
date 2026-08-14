@@ -16,6 +16,7 @@
 struct Viewport;
 struct DrawPixelInfo;
 
+#ifdef WITH_VIEWPORT3D
 /** Render the main viewport with the stage-3 GL renderer (ground heightfield mesh). */
 void RenderViewport3D(const Viewport &vp, const DrawPixelInfo &dpi);
 
@@ -30,5 +31,6 @@ void ViewportAddLandscape3D(int x0, int y0, int x1, int y1);
 
 /** Pick the tile under the given viewport pixel in orbit mode (raycast against the heightfield). */
 bool PickTile3D(const Viewport &vp, int x, int y, TileIndex &tile);
+#endif /* WITH_VIEWPORT3D */
 
 #endif /* VIEWPORT3D_H */
