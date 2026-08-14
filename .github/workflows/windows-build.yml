@@ -84,7 +84,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        LAST=$(gh release list --limit 100 --json tagName -q '.[].tagName' | grep -E '^v0\.0\.[0-9]+$' | sort -V | tail -1 | sed 's/^v//')
+        LAST=$(gh release list --limit 100 --json tagName -q '.[].tagName' | grep -E '^v0\.0\.[0-9]+$' | sort -V | tail -1 | sed 's/^v//' || true)
         if [ -z "$LAST" ]; then V="0.0.1"; else V=$(echo "$LAST" | awk -F. '{print $1"."$2"."$3+1}'); fi
         echo "Version: v$V"
         git config user.name "github-actions[bot]"
