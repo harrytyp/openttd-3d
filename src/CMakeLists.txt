@@ -599,10 +599,9 @@ add_files(
 )
 
 # The 3D rendering pipeline needs SDL (for the window/GL context) and is
-# not part of the dedicated (headless) server build.
-if(NOT OPTION_DEDICATED AND SDL2_FOUND)
-    add_compile_definitions(WITH_VIEWPORT3D)
-    add_files(
-        viewport3d.cpp
-    )
-endif()
+# not part of the dedicated (headless) server build. WITH_VIEWPORT3D is
+# defined at the top level (see CMakeLists.txt), where openttd_lib lives.
+add_files(
+    viewport3d.cpp
+    CONDITION NOT OPTION_DEDICATED AND SDL2_FOUND
+)

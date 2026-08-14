@@ -179,6 +179,14 @@ endif()
 
 find_package(SSE)
 
+# The stage-3 3D rendering pipeline needs SDL (for the window/GL context)
+# and is not part of the dedicated (headless) server build. This define is
+# set at the top level so it applies to openttd_lib (defined in this file),
+# and mirrors the compile condition of viewport3d.cpp.
+if(NOT OPTION_DEDICATED AND SDL2_FOUND)
+    add_compile_definitions(WITH_VIEWPORT3D)
+endif()
+
 find_package(Grfcodec)
 
 include(CheckIPOSupported)
