@@ -240,9 +240,10 @@ include(SourceList)
 include_directories(${CMAKE_SOURCE_DIR}/src/3rdparty/squirrel/include)
 
 # The Khronos GL headers (GL/glcorearb.h, GL/glext.h) ship with the
-# Linux GL stacks but not with MSVC or the macOS Xcode SDK; the vendored
-# copies in src/GL/ (plus src/KHR/khrplatform.h) cover those builds.
-if(WIN32 OR APPLE)
+# Linux GL stacks (libgl-dev) but not with MSVC, the macOS Xcode SDK,
+# or Emscripten; the vendored copies in src/GL/ (plus src/KHR/khrplatform.h)
+# cover all of those builds.
+if(WIN32 OR APPLE OR EMSCRIPTEN)
     include_directories(${CMAKE_SOURCE_DIR}/src)
 endif()
 

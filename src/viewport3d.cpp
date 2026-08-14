@@ -227,6 +227,8 @@ static GLuint GetSpriteTexture(SpriteID sprite, ZoomLevel zoom)
 
 	const Sprite *spr = GetSprite(sprite, SpriteType::Normal);
 	if (spr == nullptr || spr->width == 0 || spr->height == 0) return 0;
+
+#ifdef WITH_SSE
 	const auto *sd = reinterpret_cast<const Blitter_32bppSSE_Base::SpriteData *>(spr->data);
 	const auto &si = sd->infos[zoom];
 	const int tw = si.sprite_width;
@@ -248,6 +250,13 @@ static GLuint GetSpriteTexture(SpriteID sprite, ZoomLevel zoom)
 	p_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	_sprite_textures.emplace(sprite, tex);
 	return tex;
+#else
+	/* The sprite data layout is blitter-specific and the SSE blitter
+	 * (whose internals this uploads) is only built on x86-64. Without it
+	 * there is no portable way to read the raw RGBA mip-maps, so the 3D
+	 * mode simply renders without textured sprites on other platforms. */
+	return 0;
+#endif
 }
 
 /* --- Ground colours --- */

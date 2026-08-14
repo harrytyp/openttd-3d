@@ -38,7 +38,7 @@ jobs:
         - name: GCC - Dedicated
           compiler: gcc
           cxxcompiler: g++
-          libraries: grfcodec
+          libraries: grfcodec libgl-dev
           extra-cmake-parameters: -DOPTION_DEDICATED=ON -DCMAKE_CXX_FLAGS_INIT="-DRANDOM_DEBUG" -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
           # Compile without SDL / SDL2, as that should compile fine too.
 
