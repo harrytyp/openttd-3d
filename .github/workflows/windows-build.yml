@@ -32,7 +32,7 @@ jobs:
 
     - name: Setup vcpkg
       id: vcpkg
-      uses: OpenTTD/actions/setup-vcpkg@v6
+      uses: ./.github/actions/setup-vcpkg
 
     - name: Cache vcpkg artifacts
       uses: actions/cache@v4

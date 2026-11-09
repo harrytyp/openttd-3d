@@ -1,0 +1,99 @@
+name: 'Setup vcpkg (retry-hardened)'
+description: >
+  Drop-in replacement for OpenTTD/actions/setup-vcpkg. Identical steps and outputs,
+  but the vcpkg bootstrap is retried: it downloads the vcpkg-macos/-glibc tool binary
+  from a GitHub release CDN that intermittently answers with HTTP 504
+  (observed 2026-11-08 nightly: "curl: (56) The requested URL returned error: 504"
+  after curl's own 3 retries). Retrying the bootstrap instead of failing the job
+  makes the CI immune to that transient outage.
+
+inputs:
+  vcpkg-location:
+    description: 'Where to install vcpkg'
+    required: true
+    default: '${{ runner.temp }}/vcpkg'
+  mono-install-command:
+    description: 'Command to run to install mono'
+    required: false
+    default: ${{ runner.os == 'macOS' && 'brew install mono' || runner.os == 'Linux' && 'sudo apt-get install -y --no-install-recommends mono-complete' || '' }}
+  attempts:
+    description: 'How many times the vcpkg bootstrap may be attempted'
+    required: false
+    default: '5'
+
+outputs:
+  vcpkg-location:
+    description: 'Where vcpkg is installed'
+    value: ${{ inputs.vcpkg-location }}
+  vcpkg:
+    description: 'The vcpkg executable'
+    value: '${{ inputs.vcpkg-location }}/vcpkg'
+  vcpkg-cmake:
+    description: 'The vcpkg cmake toolchain'
+    value: '${{ inputs.vcpkg-location }}/scripts/buildsystems/vcpkg.cmake'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install vcpkg
+      shell: bash
+      run: |
+        set -uo pipefail
+        location="${{ inputs.vcpkg-location }}"
+
+        if [ ! -d "$location/.git" ]; then
+          n=0
+          until git clone https://github.com/microsoft/vcpkg "$location"; do
+            n=$((n + 1))
+            if [ "$n" -ge 3 ]; then
+              echo "::error::cloning vcpkg failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::clone attempt $n failed, retrying"
+            sleep $((n * 15))
+            rm -rf "$location"
+          done
+        fi
+
+        cd "$location"
+        bootstrap="./bootstrap-vcpkg.$( [ "${{ runner.os }}" = "Windows" ] && echo bat || echo sh )"
+
+        attempt=1
+        until "$bootstrap" -disableMetrics; do
+          if [ "$attempt" -ge "${{ inputs.attempts }}" ]; then
+            echo "::error::vcpkg bootstrap failed after $attempt attempts"
+            exit 1
+          fi
+          echo "::warning::vcpkg bootstrap attempt $attempt failed (transient download error?), retrying in $((attempt * 20))s"
+          sleep $((attempt * 20))
+          attempt=$((attempt + 1))
+        done
+
+    - name: Install mono
+      if: inputs.mono-install-command
+      shell: bash
+      run: |
+        ${{ inputs.mono-install-command }}
+
+    - name: Setup NuGet Credentials
+      shell: bash
+      env:
+        FEED_URL: 'https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json'
+      run: |
+        cd "${{ inputs.vcpkg-location }}"
+        ${{ inputs.mono-install-command && 'mono' }} $(./vcpkg fetch nuget | tail -n 1) \
+          sources add \
+          -source "${{ env.FEED_URL }}" \
+          -storepasswordincleartext \
+          -name "GitHub" \
+          -username "${{ github.repository_owner }}" \
+          -password "${{ github.token }}"
+        ${{ inputs.mono-install-command && 'mono' }} $(./vcpkg fetch nuget | tail -n 1) \
+          setapikey "${{ github.token }}" \
+          -source "${{ env.FEED_URL }}"
+
+    - name: Setup vcpkg caching
+      uses: actions/github-script@v8
+      with:
+        script: |
+          core.exportVariable('VCPKG_BINARY_SOURCES', 'clear;nuget,GitHub,readwrite')

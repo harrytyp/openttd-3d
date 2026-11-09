@@ -36,7 +36,7 @@ jobs:
 
     - name: Setup vcpkg
       id: vcpkg
-      uses: OpenTTD/actions/setup-vcpkg@v6
+      uses: ./.github/actions/setup-vcpkg
 
     - name: Install OpenGFX
       run: |
